@@ -74,7 +74,7 @@ class AddMahilaSamitiMembersController extends Controller
             // Handle photo upload if present
             if ($request->hasFile('photo')) {
                 $photo = $request->file('photo');
-                
+
                 // Validate image size (200KB)
                 if ($photo->getSize() > 200 * 1024) {
                     return response()->json([
@@ -82,14 +82,16 @@ class AddMahilaSamitiMembersController extends Controller
                         'message' => 'Photo size must be less than 200KB'
                     ], 422);
                 }
-                
+
                 // Create session-based folder path
-                $session = $data['session'];
+                $session = $data['session'] ?? 'default'; // Ensure session is not null
                 $folderPath = 'public/mahila_samiti/' . $session;
-                
-                $photoName = time() . '_' . $photo->getClientOriginalName();
+
+                $photoName = time() . '_' . preg_replace('/\s+/', '_', $photo->getClientOriginalName()); // Sanitize file name
                 $photo->storeAs($folderPath, $photoName);
                 $data['photo'] = $session . '/' . $photoName;
+            } else {
+                $data['photo'] = null; // Set photo to null if not uploaded
             }
 
             $member = AddMahilaSamitiMembers::create($data);
@@ -186,7 +188,7 @@ class AddMahilaSamitiMembersController extends Controller
                 }
 
                 $photo = $request->file('photo');
-                
+
                 // Validate image size (200KB)
                 if ($photo->getSize() > 200 * 1024) {
                     return response()->json([
@@ -194,14 +196,16 @@ class AddMahilaSamitiMembersController extends Controller
                         'message' => 'Photo size must be less than 200KB'
                     ], 422);
                 }
-                
+
                 // Create session-based folder path
                 $session = $data['session'] ?? $member->session;
                 $folderPath = 'public/mahila_samiti/' . $session;
-                
-                $photoName = time() . '_' . $photo->getClientOriginalName();
+
+                $photoName = time() . '_' . preg_replace('/\s+/', '_', $photo->getClientOriginalName()); // Sanitize file name
                 $photo->storeAs($folderPath, $photoName);
                 $data['photo'] = $session . '/' . $photoName;
+            } else {
+                $data['photo'] = null; // Set photo to null if not uploaded
             }
 
             $member->update($data);
