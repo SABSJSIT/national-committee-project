@@ -11,6 +11,6 @@ Route::get('mahila-samiti-members-existing-combinations', [AddMahilaSamitiMember
 Route::get('mahila-samiti-members-cities', [AddMahilaSamitiMembersController::class, 'getCities']);
 Route::get('mahila-samiti-members-states', [AddMahilaSamitiMembersController::class, 'getStates']);
 
-// External profile fetch route (proxy to avoid CORS)
 Route::post('/fetch-external-profile', [AddMahilaSamitiMembersController::class, 'fetchExternalProfile']);
+
 
