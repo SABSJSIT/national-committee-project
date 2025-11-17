@@ -168,7 +168,7 @@
                             <option value="">-- Select Session --</option>
                         </select>
                         <button id="loadSessionBtn" class="btn btn-secondary btn-sm">Load</button>
-                        <small class="text-muted ms-3">Data is loaded per selected session only.</small>
+                        <small class="text-muted ms-3">Data is being loaded as per selected session only.</small>
                     </div>
                     
                     <!-- Search Bar -->
