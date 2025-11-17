@@ -86,4 +86,7 @@ Route::middleware(['web', 'checkSession'])->group(function () {
     Route::get('/mahila-samiti-members/add', function () {
         return view('mahila_samiti_members.AddMember');
     })->name('mahila-samiti-members.add');
+
+    // FPDF Export Route
+    Route::get('/mahila-samiti-members/export-fpdf', [\App\Http\Controllers\mahila_samiti_members\MahilaSamitiMembersExportController::class, 'exportFPDF'])->name('mahila-samiti-members.export-fpdf');
 });

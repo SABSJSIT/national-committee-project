@@ -39,6 +39,33 @@
     .required {
         color: red;
     }
+    /* Ensure modals are always visible */
+    .modal {
+        z-index: 2050 !important;
+    }
+    .modal-backdrop {
+        z-index: 2040 !important;
+    }
+    .modal-header {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        padding: 1rem !important;
+        border-bottom: 1px solid #dee2e6 !important;
+        background-color: #ffffff !important;
+        position: relative !important;
+        z-index: 2051 !important;
+    }
+    .modal-title {
+        font-size: 1.25rem;
+        font-weight: 500;
+        line-height: 1.5;
+        color: #212529;
+        z-index: 2051 !important;
+    }
+    .modal-dialog {
+        z-index: 2050 !important;
+    }
 </style>
 
 <div class="container-fluid mt-4">
@@ -68,6 +95,10 @@
                         </select>
                         <button id="loadSessionBtn" class="btn btn-secondary btn-sm">Load</button>
                         <small class="text-muted ms-3">Data is loaded per selected session only.</small>
+                    </div>
+                    <div class="mb-3 d-flex gap-2">
+                        <button id="exportExcelBtn" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#excelFieldsModal"><i class="fas fa-file-excel"></i> Export Excel</button>
+                        <button id="exportPdfBtn" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#pdfFieldsModal"><i class="fas fa-file-pdf"></i> Export PDF</button>
                     </div>
 
                     <div class="table-responsive">
@@ -100,7 +131,14 @@
 </div>
 
 <script>
+
+// SheetJS CDN
+const sheetJsScript = document.createElement('script');
+sheetJsScript.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+document.head.appendChild(sheetJsScript);
+
 let dropdownData = {};
+let isDownloading = false; // Prevent multiple downloads
 
 document.addEventListener('DOMContentLoaded', function() {
     // Load available sessions into the dropdown
@@ -112,6 +150,155 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         loadMembersBySession(session);
+    });
+
+    // Excel Export
+    document.getElementById('exportExcelBtn').addEventListener('click', function() {
+        // Open the modal to select fields
+        const modal = new bootstrap.Modal(document.getElementById('excelFieldsModal'));
+        modal.show();
+    });
+
+    document.getElementById('generateExcelBtn').addEventListener('click', function() {
+        if (isDownloading) {
+            showToast('Download already in progress', 'info');
+            return;
+        }
+
+        const selectedFields = [];
+        document.querySelectorAll('#excelFieldsForm input[type="checkbox"]:checked').forEach(checkbox => {
+            selectedFields.push(checkbox.value);
+        });
+
+        if (selectedFields.length === 0) {
+            showToast('Please select at least one field', 'info');
+            return;
+        }
+
+        // Close the modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('excelFieldsModal'));
+        if (modal) modal.hide();
+
+        const session = document.getElementById('sessionSelect').value;
+        if (!session) {
+            showToast('Please select a session first', 'info');
+            return;
+        }
+
+        isDownloading = true; // Set downloading flag
+
+        // Fetch all members data for selected session
+        fetch(`/api/mahila-samiti-members?session=${encodeURIComponent(session)}`, {
+            method: 'GET',
+            headers: {
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+        .then(r => r.json())
+        .then(res => {
+            if (res.success && Array.isArray(res.data)) {
+                const members = res.data;
+
+                // Define the sequence of columns
+                const columnSequence = [
+                    'session',
+                    'name',
+                    'name_hindi',
+                    'husband_name',
+                    'husband_name_hindi',
+                    'father_name',
+                    'father_name_hindi',
+                    'type',
+                    'designation',
+                    'anchal_name',
+                    'anchal_code',
+                    'mid',
+                    'address',
+                    'address_hindi',
+                    'city',
+                    'state',
+                    'pincode',
+                    'mobile_number',
+                    'wtp_number',
+                    'ex_post',
+                    'remarks'
+                ];
+
+                // Prepare data for Excel based on selected fields and sequence
+                const excelData = members.map(m => {
+                    const row = {};
+                    columnSequence.forEach(field => {
+                        if (selectedFields.includes(field)) {
+                            row[field] = m[field] || '';
+                        }
+                    });
+                    return row;
+                });
+
+                // Create workbook and worksheet
+                const ws = XLSX.utils.json_to_sheet(excelData);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'Members');
+
+                // Write file
+                XLSX.writeFile(wb, `mahila_samiti_members_${session}.xlsx`);
+                showToast('Excel file exported successfully', 'success');
+            } else {
+                showToast('No data found for selected session', 'info');
+            }
+        })
+        .catch(err => {
+            console.error('Error exporting Excel:', err);
+            showToast('Error exporting Excel file', 'error');
+        })
+        .finally(() => {
+            isDownloading = false; // Reset downloading flag
+        });
+    });
+
+    // PDF Export with field selection
+    document.getElementById('generatePdfBtn').addEventListener('click', function() {
+        const selectedFields = [];
+        document.querySelectorAll('#pdfFieldsForm input[type="checkbox"]:checked').forEach(checkbox => {
+            selectedFields.push(checkbox.value);
+        });
+
+        if (selectedFields.length === 0) {
+            showToast('Please select at least one field', 'info');
+            return;
+        }
+
+        // Close the modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('pdfFieldsModal'));
+        if (modal) modal.hide();
+
+        // Generate PDF with selected fields
+        const params = new URLSearchParams();
+        selectedFields.forEach(field => params.append('fields[]', field));
+        window.open('/mahila-samiti-members/export-fpdf?' + params.toString(), '_blank');
+    });
+
+    document.getElementById('sessionSelect').addEventListener('change', function() {
+        const session = this.value;
+        const exportExcelBtn = document.getElementById('exportExcelBtn');
+        const exportPdfBtn = document.getElementById('exportPdfBtn');
+
+        if (session) {
+            exportExcelBtn.style.display = 'inline-block';
+            exportPdfBtn.style.display = 'inline-block';
+        } else {
+            exportExcelBtn.style.display = 'none';
+            exportPdfBtn.style.display = 'none';
+        }
+    });
+
+    // Initially hide the export buttons
+    document.addEventListener('DOMContentLoaded', function() {
+        const exportExcelBtn = document.getElementById('exportExcelBtn');
+        const exportPdfBtn = document.getElementById('exportPdfBtn');
+        exportExcelBtn.style.display = 'none';
+        exportPdfBtn.style.display = 'none';
     });
 });
 
@@ -537,6 +724,236 @@ function showToast(message, type = 'info') {
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                 <button type="button" class="btn btn-primary" id="openEditFromViewBtn">Edit</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PDF Fields Selection Modal -->
+<div class="modal fade" id="pdfFieldsModal" tabindex="-1" aria-labelledby="pdfFieldsModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="pdfFieldsModalLabel">Select Fields for PDF Export</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="pdfFieldsForm">
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="pdfFieldSession" name="field" value="session" checked>
+                            <label class="form-check-label" for="pdfFieldSession">
+                                Session
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="pdfFieldName" name="field" value="name" checked>
+                            <label class="form-check-label" for="pdfFieldName">
+                                Name
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="pdfFieldFatherHusband" name="field" value="father_husband" checked>
+                            <label class="form-check-label" for="pdfFieldFatherHusband">
+                                Father/Husband Name
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="pdfFieldType" name="field" value="type" checked>
+                            <label class="form-check-label" for="pdfFieldType">
+                                Type
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="pdfFieldDesignation" name="field" value="designation" checked>
+                            <label class="form-check-label" for="pdfFieldDesignation">
+                                Designation
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="pdfFieldAnchal" name="field" value="anchal" checked>
+                            <label class="form-check-label" for="pdfFieldAnchal">
+                                Anchal
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="pdfFieldMID" name="field" value="mid" checked>
+                            <label class="form-check-label" for="pdfFieldMID">
+                                MID
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="pdfFieldPhone" name="field" value="phone" checked>
+                            <label class="form-check-label" for="pdfFieldPhone">
+                                Phone
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="pdfFieldAddress" name="field" value="address" checked>
+                            <label class="form-check-label" for="pdfFieldAddress">
+                                Address
+                            </label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="generatePdfBtn"><i class="fas fa-file-pdf"></i> Generate PDF</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Excel Fields Selection Modal -->
+<div class="modal fade" id="excelFieldsModal" tabindex="-1" aria-labelledby="excelFieldsModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="excelFieldsModalLabel">Select Fields for Excel Export</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="excelFieldsForm">
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldSession" name="field" value="session" checked>
+                            <label class="form-check-label" for="excelFieldSession">
+                                Session
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldAnchalName" name="field" value="anchal_name" checked>
+                            <label class="form-check-label" for="excelFieldAnchalName">
+                                Anchal Name
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldAnchalCode" name="field" value="anchal_code" checked>
+                            <label class="form-check-label" for="excelFieldAnchalCode">
+                                Anchal Code
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldType" name="field" value="type" checked>
+                            <label class="form-check-label" for="excelFieldType">
+                                Type
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldDesignation" name="field" value="designation" checked>
+                            <label class="form-check-label" for="excelFieldDesignation">
+                                Designation
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldMID" name="field" value="mid" checked>
+                            <label class="form-check-label" for="excelFieldMID">
+                                MID
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldName" name="field" value="name" checked>
+                            <label class="form-check-label" for="excelFieldName">
+                                Name
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldNameHindi" name="field" value="name_hindi" checked>
+                            <label class="form-check-label" for="excelFieldNameHindi">
+                                Name (Hindi)
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldHusbandName" name="field" value="husband_name" checked>
+                            <label class="form-check-label" for="excelFieldHusbandName">
+                                Husband Name
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldHusbandNameHindi" name="field" value="husband_name_hindi" checked>
+                            <label class="form-check-label" for="excelFieldHusbandNameHindi">
+                                Husband Name (Hindi)
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldFatherName" name="field" value="father_name" checked>
+                            <label class="form-check-label" for="excelFieldFatherName">
+                                Father Name
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldFatherNameHindi" name="field" value="father_name_hindi" checked>
+                            <label class="form-check-label" for="excelFieldFatherNameHindi">
+                                Father Name (Hindi)
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldAddress" name="field" value="address" checked>
+                            <label class="form-check-label" for="excelFieldAddress">
+                                Address
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldAddressHindi" name="field" value="address_hindi" checked>
+                            <label class="form-check-label" for="excelFieldAddressHindi">
+                                Address (Hindi)
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldCity" name="field" value="city" checked>
+                            <label class="form-check-label" for="excelFieldCity">
+                                City
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldState" name="field" value="state" checked>
+                            <label class="form-check-label" for="excelFieldState">
+                                State
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldPincode" name="field" value="pincode" checked>
+                            <label class="form-check-label" for="excelFieldPincode">
+                                Pincode
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldMobileNumber" name="field" value="mobile_number" checked>
+                            <label class="form-check-label" for="excelFieldMobileNumber">
+                                Mobile Number
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldWTPNumber" name="field" value="wtp_number" checked>
+                            <label class="form-check-label" for="excelFieldWTPNumber">
+                                WTP Number
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldPhoto" name="field" value="photo" checked>
+                            <label class="form-check-label" for="excelFieldPhoto">
+                                Photo
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldExPost" name="field" value="ex_post" checked>
+                            <label class="form-check-label" for="excelFieldExPost">
+                                Ex Post
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="excelFieldRemarks" name="field" value="remarks" checked>
+                            <label class="form-check-label" for="excelFieldRemarks">
+                                Remarks
+                            </label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="generateExcelBtn"><i class="fas fa-file-excel"></i> Generate Excel</button>
             </div>
         </div>
     </div>
