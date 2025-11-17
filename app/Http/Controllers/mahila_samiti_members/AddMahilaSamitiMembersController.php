@@ -154,12 +154,13 @@ class AddMahilaSamitiMembersController extends Controller
             }
 
             // Check if entry already exists for this session and mid (excluding current record)
-            if (AddMahilaSamitiMembers::sessionEntryExists($request->input('session'), $request->input('mid'), $id)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Entry for this session and MID already exists'
-                ], 400);
-            }
+            // BUT: Only check if session or mid has CHANGED from the original
+            $session = $request->input('session');
+            $mid = $request->input('mid');
+            
+            // Skip duplicate MID check - same MID can have multiple entries in same session
+            // if they have different types or designations
+            // The real restriction is on type+designation combination (checked below)
 
             // Check for duplicate type-designation combination for the same session (excluding current record)
             if (AddMahilaSamitiMembers::typeDesignationExists($request->input('session'), $request->input('type'), $request->input('designation'), $id)) {
@@ -300,11 +301,11 @@ class AddMahilaSamitiMembersController extends Controller
                 break;
 
             case 'sanyojika':
-                // Sanyojika: Maximum 9 entries per session per anchal
-                if ($existingCount >= 9) {
+                // Sanyojika: Maximum 13 entries per session per anchal (updated request)
+                if ($existingCount >= 13) {
                     return [
                         'valid' => false,
-                        'message' => "Maximum 9 Sanyojika members allowed per anchal per session. {$anchalName} already has {$existingCount} Sanyojika members for session {$session}."
+                        'message' => "Maximum 13 Sanyojika members allowed per anchal per session. {$anchalName} already has {$existingCount} Sanyojika members for session {$session}."
                     ];
                 }
                 // Check if this specific designation already exists
@@ -317,13 +318,7 @@ class AddMahilaSamitiMembersController extends Controller
                 break;
 
             case 'ksm_members':
-                // KSM Members: Maximum 12 entries per session per anchal
-                if ($existingCount >= 12) {
-                    return [
-                        'valid' => false,
-                        'message' => "Maximum 12 KSM members allowed per anchal per session. {$anchalName} already has {$existingCount} KSM members for session {$session}."
-                    ];
-                }
+                // KSM Members: no hard maximum enforced here (allow any number per anchal)
                 break;
         }
 
@@ -336,14 +331,14 @@ class AddMahilaSamitiMembersController extends Controller
     public function getDropdownData()
     {
         try {
-            // Generate session options (academic year format)
+            // Use only sessions that already exist in the database (distinct sessions from mahila_samiti_members)
             $sessions = [];
-            $startYear = 2020;
-            $currentYear = date('Y');
-            
-            // Generate sessions like 2020-2021, 2021-2022, etc.
-            for ($year = $startYear; $year <= $currentYear + 5; $year++) {
-                $sessions[] = $year . '-' . ($year + 1);
+            if (DB::getSchemaBuilder()->hasTable('mahila_samiti_members')) {
+                $sessions = AddMahilaSamitiMembers::select('session')
+                    ->distinct()
+                    ->orderBy('session', 'desc')
+                    ->pluck('session')
+                    ->toArray();
             }
 
             // Fetch anchals from database
@@ -482,8 +477,8 @@ class AddMahilaSamitiMembersController extends Controller
 
             $query = AddMahilaSamitiMembers::where('session', $session);
             
-            // Filter by anchal if provided
-            if ($anchalName) {
+            // Filter by anchal if provided — except for sanyojika which should be unique across all anchals
+            if ($anchalName && $type !== 'sanyojika') {
                 $query->where('anchal_name', $anchalName);
             }
             
@@ -505,6 +500,47 @@ class AddMahilaSamitiMembersController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching existing combinations: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Check duplicate entry by session and MID
+     */
+    public function checkDuplicate(Request $request)
+    {
+        try {
+            $session = $request->input('session');
+            $mid = $request->input('mid');
+
+            if (!$session || !$mid) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Both session and MID are required'
+                ], 400);
+            }
+
+            $member = AddMahilaSamitiMembers::where('session', $session)
+                ->where('mid', $mid)
+                ->first();
+
+            if ($member) {
+                return response()->json([
+                    'success' => true,
+                    'exists' => true,
+                    'member' => $member
+                ], 200);
+            }
+
+            return response()->json([
+                'success' => true,
+                'exists' => false
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error checking duplicate: ' . $e->getMessage()
             ], 500);
         }
     }

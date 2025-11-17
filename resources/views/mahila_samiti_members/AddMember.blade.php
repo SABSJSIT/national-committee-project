@@ -196,6 +196,9 @@
             <div class="card">
                 <div class="card-body">
                     <form id="memberForm" enctype="multipart/form-data" novalidate>
+                                    <input type="hidden" id="edit_member_id" name="edit_member_id" value="">
+                                    <input type="hidden" id="edit_member_original_session" name="edit_member_original_session" value="">
+                                    <input type="hidden" id="edit_member_original_type" name="edit_member_original_type" value="">
                         
                         <!-- Basic Information Section -->
                         <div class="form-section">
@@ -560,18 +563,51 @@ $.ajaxSetup({
 });
 
 document.addEventListener('DOMContentLoaded', function() {
-    loadDropdownData();
-    setupEventListeners();
-    setupFormValidation();
-    // Ensure initial guardian toggle state
-    toggleGuardianFields(document.querySelector('input[name="guardian_type"]:checked').value);
+    const params = new URLSearchParams(window.location.search);
+    const editId = params.get('edit_id');
+
+    // Load dropdowns first, then initialize listeners and possibly prefill for edit
+    loadDropdownData().then(() => {
+        setupEventListeners();
+        setupFormValidation();
+        // Ensure initial guardian toggle state
+        const guardianChecked = document.querySelector('input[name="guardian_type"]:checked');
+        if (guardianChecked) toggleGuardianFields(guardianChecked.value);
+
+        if (editId) {
+            // fetch member and prefill form
+            fetch(`/api/mahila-samiti-members/${encodeURIComponent(editId)}`, {
+                method: 'GET',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success && res.data) {
+                    fillFormWithMember(res.data);
+                    document.getElementById('edit_member_id').value = res.data.id;
+                    // change submit button text to Update
+                    const submitBtn = document.getElementById('submitBtn');
+                    if (submitBtn) submitBtn.innerHTML = '<i class="fas fa-save"></i> Update Member';
+                } else {
+                    showToast('Unable to load member for editing', 'error');
+                }
+            })
+            .catch(err => {
+                console.error('Error loading member for edit:', err);
+                showToast('Error loading member for edit', 'error');
+            });
+        }
+    });
 });
 
 // Load dropdown data
 function loadDropdownData() {
     showLoading(true);
     
-    fetch('/api/mahila-samiti-members-dropdown-data', {
+    return fetch('/api/mahila-samiti-members-dropdown-data', {
         method: 'GET',
         headers: {
             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
@@ -642,9 +678,17 @@ function updateDesignations() {
     
     if (!type) return;
     
-    // If session and anchal are selected, check for existing combinations
-    if (session && anchalName) {
-        checkExistingCombinations(session, anchalName, type);
+    // If session selected, check for existing combinations.
+    // For Sanyojika we need global uniqueness across anchals, so do not include anchalName
+    if (session) {
+        if (type === 'sanyojika') {
+            // Ask backend for existing combinations for the session and type only (global)
+            checkExistingCombinations(session, null, type);
+        } else if (anchalName) {
+            checkExistingCombinations(session, anchalName, type);
+        } else {
+            populateDesignationOptions(type, []);
+        }
     } else {
         // If session or anchal not selected, show all options
         populateDesignationOptions(type, []);
@@ -689,7 +733,7 @@ function checkExistingCombinations(session, anchalName, type) {
     });
 }
 
-// Populate designation options with disabled state for used ones
+    // Populate designation options with disabled state for used ones
 function populateDesignationOptions(type, usedDesignations) {
     const designationSelect = document.getElementById('designation');
     const designationInfo = document.getElementById('designationInfo');
@@ -700,6 +744,22 @@ function populateDesignationOptions(type, usedDesignations) {
     let availableDesignations = [];
     let maxEntries = 0;
     let currentCount = usedDesignations.length;
+
+    // Edit-mode context: allow the current member's designation to remain selectable
+    const editId = (document.getElementById('edit_member_id') || {}).value || '';
+    const origSession = (document.getElementById('edit_member_original_session') || {}).value || '';
+    const origType = (document.getElementById('edit_member_original_type') || {}).value || '';
+    const currentSession = (document.getElementById('session') || {}).value || '';
+    const currentDesignationStored = (document.getElementById('designation') || {}).dataset ? (document.getElementById('designation').dataset.current || '') : '';
+    const isExemptContext = editId && origSession && origType && (origSession === currentSession) && (origType === type);
+
+    // Helper to normalize designation strings for comparison
+    const normalize = (s) => {
+        if (!s) return '';
+        return s.toString().toLowerCase().trim().replace(/\s+/g, ' ').replace(/[-–—]/g, ' ');
+    };
+    const usedNorm = usedDesignations.map(d => normalize(d));
+    const currentDesigNorm = normalize(currentDesignationStored || '');
     
     if (type === 'pst') {
         availableDesignations = ['President', 'Secretary', 'Treasurer', 'Co-Treasurer'];
@@ -708,62 +768,69 @@ function populateDesignationOptions(type, usedDesignations) {
         availableDesignations = ['Vice-President', 'Secretary'];
         maxEntries = 2;
     } else if (type === 'sanyojika') {
-        availableDesignations = [];
-        for (let i = 1; i <= 9; i++) {
-            availableDesignations.push(`Option ${i} Sanyojika`);
-        }
-        maxEntries = 9;
+        // Use the requested 13 'pravartiya' names for Sanyojika designations
+        availableDesignations = [
+            'Sangathan',
+            'Kesariya Karyashala',
+            'Parivaranjali',
+            "Sadhumargi Women's Motivational Fourm",
+            'Yuvati Shakti',
+            'Sarwadharmi Sahyog',
+            'Samta Chhatravratti',
+            'Reporting System',
+            'Shramanopasak Sanyojika',
+            'International',
+            'Pratikraman Sanyojika',
+            'Sajjhayami Rao Saya',
+            'Golden Steps'
+        ];
+        maxEntries = 13;
     } else if (type === 'ksm_members') {
         availableDesignations = ['KSM Members'];
-        maxEntries = 12; // Special case: multiple entries with same designation allowed
+        // No hard limit on KSM members per anchal (allow any number)
     }
     
-    // Check if we've reached the maximum entries for this type
-    if (type !== 'ksm_members' && currentCount >= maxEntries) {
-        designationSelect.innerHTML = '<option value="">Maximum entries reached for this type</option>';
-        designationSelect.disabled = true;
-        designationInfo.innerHTML = '<span class="designation-warning">❌ Maximum entries reached for this type in the selected session and anchal</span>';
-        return;
-    } else {
-        designationSelect.disabled = false;
-    }
+    // We'll always populate options but may disable them. Compute whether to fully disable later.
+    designationSelect.disabled = false;
     
-    // For KSM Members, allow multiple entries with same designation up to 12 total
+    // For KSM Members, allow multiple entries with no enforced upper limit
     if (type === 'ksm_members') {
-        if (currentCount >= 12) {
-            designationSelect.innerHTML = '<option value="">Maximum 12 KSM members allowed per anchal</option>';
-            designationSelect.disabled = true;
-            designationInfo.innerHTML = '<span class="designation-warning">❌ Maximum 12 KSM members already added for this anchal in the selected session</span>';
-            return;
-        } else {
-            designationSelect.innerHTML += `<option value="KSM Members">KSM Members</option>`;
-            designationInfo.innerHTML = `<span class="text-success">✅ ${currentCount}/12 KSM members added for this anchal in the selected session</span>`;
-        }
+        designationSelect.innerHTML += `<option value="KSM Members">KSM Members</option>`;
+        designationInfo.innerHTML = `<span class="text-success">✅ ${currentCount} KSM members already added for this anchal in the selected session</span>`;
         return;
     }
     
-    // For other types, disable already used designations
+    // For other types, disable already used designations except when editing the same member in the same session/type
     let availableCount = 0;
     availableDesignations.forEach(designation => {
-        const isUsed = usedDesignations.includes(designation);
-        const disabledAttr = isUsed ? 'disabled' : '';
-        const usedText = isUsed ? ' (Already Added)' : '';
-        const styleAttr = isUsed ? 'style="color: #6c757d; background-color: #f8f9fa;"' : '';
-        
-        if (!isUsed) availableCount++;
-        
+        const desNorm = normalize(designation);
+        const isUsed = usedNorm.includes(desNorm);
+        // If in edit mode and original session/type match current, allow the member's own designation
+        const exemptThis = isExemptContext && desNorm === currentDesigNorm && currentDesigNorm !== '';
+        const disabled = isUsed && !exemptThis;
+        const disabledAttr = disabled ? 'disabled' : '';
+        const usedText = (isUsed && !exemptThis) ? ' (Already Added)' : '';
+        const styleAttr = (isUsed && !exemptThis) ? 'style="color: #6c757d; background-color: #f8f9fa;"' : '';
+
+        if (!disabled) availableCount++;
+
         designationSelect.innerHTML += `<option value="${designation}" ${disabledAttr} ${styleAttr}>${designation}${usedText}</option>`;
     });
     
     // Show info about available vs used designations
+    const scope = type === 'pst' ? 'session' : 'session and anchal';
     if (availableCount === 0) {
-        const scope = type === 'pst' ? 'session' : 'session and anchal';
-        designationInfo.innerHTML = `<span class="designation-warning">❌ All designations for this type have been filled in the selected ${scope}</span>`;
+        // If editing and exempt context, allow the current designation even if others are full
+        if (isExemptContext && currentDesigNorm) {
+            designationInfo.innerHTML = `<span class="text-info">ℹ️ Current designation is retained for this member; other designations are filled for this ${scope}.</span>`;
+        } else {
+            designationInfo.innerHTML = `<span class="designation-warning">❌ All designations for this type have been filled in the selected ${scope}</span>`;
+            // If not editing or nothing to exempt, disable the select to prevent new entries
+            designationSelect.disabled = true;
+        }
     } else if (currentCount === 0) {
-        const scope = type === 'pst' ? 'session' : 'session and anchal';
         designationInfo.innerHTML = `<span class="text-info">ℹ️ ${availableCount} designation${availableCount > 1 ? 's' : ''} available for this type in the selected ${scope}</span>`;
     } else {
-        const scope = type === 'pst' ? 'session' : 'session and anchal';
         designationInfo.innerHTML = `<span class="text-warning">⚠️ ${currentCount} filled, ${availableCount} available for this type in the selected ${scope}</span>`;
     }
 }
@@ -1286,6 +1353,201 @@ function fillFormWithProfile(profile) {
     }
 }
 
+// Fill the AddMember form with an existing member record (API shape)
+function fillFormWithMember(member) {
+    try {
+        if (!member) return;
+
+        // store original session/type early for exemption logic
+        try {
+            const origSessEl = document.getElementById('edit_member_original_session');
+            const origTypeEl = document.getElementById('edit_member_original_type');
+            if (origSessEl) origSessEl.value = member.session || '';
+            if (origTypeEl) origTypeEl.value = member.type || '';
+        } catch(e) {}
+
+        // Basic fields
+        if (member.mid) document.getElementById('mid').value = member.mid;
+        if (member.name) document.getElementById('name').value = member.name;
+        if (member.name_hindi) document.getElementById('name_hindi').value = member.name_hindi;
+
+        // Guardian
+        const guardian = (member.guardian_type || '').toLowerCase();
+        if (guardian.includes('father')) {
+            document.getElementById('father_type').checked = true;
+            toggleGuardianFields('father');
+            if (member.father_name) document.getElementById('father_name').value = member.father_name;
+            if (member.father_name_hindi) document.getElementById('father_name_hindi').value = member.father_name_hindi;
+        } else {
+            document.getElementById('husband_type').checked = true;
+            toggleGuardianFields('husband');
+            if (member.husband_name) document.getElementById('husband_name').value = member.husband_name;
+            if (member.husband_name_hindi) document.getElementById('husband_name_hindi').value = member.husband_name_hindi;
+        }
+
+        // Contact & address
+        if (member.address) document.getElementById('address').value = member.address;
+        if (member.address_hindi) document.getElementById('address_hindi').value = member.address_hindi;
+        if (member.city) {
+            const citySelect = document.getElementById('city');
+            for (let option of citySelect.options) {
+                if (option.text.toLowerCase() === (member.city || '').toLowerCase()) { option.selected = true; break; }
+            }
+            if (!document.getElementById('city').value) document.getElementById('city').value = member.city;
+        }
+        if (member.state) {
+            const stateSelect = document.getElementById('state');
+            for (let option of stateSelect.options) {
+                if (option.text.toLowerCase() === (member.state || '').toLowerCase()) { option.selected = true; break; }
+            }
+            if (!document.getElementById('state').value) document.getElementById('state').value = member.state;
+        }
+        if (member.pincode) document.getElementById('pincode').value = member.pincode;
+        if (member.wtp_number) document.getElementById('wtp_number').value = member.wtp_number;
+        if (member.mobile_number) document.getElementById('mobile_number').value = member.mobile_number;
+
+        // Photo - accept URL or stored base64
+        if (member.photo) {
+            document.getElementById('photo').value = member.photo;
+            displayPhotoPreview(member.photo);
+        }
+
+        // Additional
+        if (member.ex_post) document.getElementById('ex_post').value = member.ex_post;
+        if (member.remarks) document.getElementById('remarks').value = member.remarks;
+
+        // Type / Designation / Anchal / Session
+        if (member.type) {
+            const t = document.getElementById('type');
+            // set current designation into dataset so populateDesignationOptions can exempt it
+            const desEl = document.getElementById('designation');
+            if (desEl) desEl.dataset.current = member.designation || '';
+            if (t) t.value = member.type;
+            if (t) t.dispatchEvent(new Event('change'));
+        }
+
+        // Wait a tick to allow updateDesignations to repopulate options
+        setTimeout(() => {
+            if (member.designation) {
+                const des = document.getElementById('designation');
+                if (des) des.dataset.current = member.designation || '';
+                if (des) {
+                    for (let option of des.options) {
+                        if (option.value.toString().toLowerCase() === (member.designation || '').toString().toLowerCase()) {
+                            option.selected = true; break;
+                        }
+                    }
+                    if (!des.value) des.value = member.designation;
+                }
+            }
+
+            if (member.anchal_name) {
+                const anch = document.getElementById('anchal_name');
+                for (let option of anch.options) {
+                    if (option.value.toLowerCase() === (member.anchal_name || '').toLowerCase()) { option.selected = true; break; }
+                }
+                if (!anch.value) anch.value = member.anchal_name;
+                // Also set the anchal_code field from the selected option's data-code attribute
+                try {
+                    const sel = anch.options[anch.selectedIndex];
+                    if (sel) {
+                        const code = sel.getAttribute('data-code') || sel.dataset.code || '';
+                        const codeEl = document.getElementById('anchal_code');
+                        if (codeEl) codeEl.value = code;
+                    }
+                } catch (e) {
+                    // ignore
+                }
+            }
+
+            if (member.session) {
+                const sess = document.getElementById('session');
+                if (sess) {
+                    for (let option of sess.options) {
+                        if (option.value === member.session) { option.selected = true; break; }
+                    }
+                    if (!sess.value) sess.value = member.session;
+                }
+            }
+            // store original session/type for exemption logic
+            try {
+                const origSessEl = document.getElementById('edit_member_original_session');
+                const origTypeEl = document.getElementById('edit_member_original_type');
+                if (origSessEl) origSessEl.value = member.session || '';
+                if (origTypeEl) origTypeEl.value = member.type || '';
+            } catch(e) {}
+            // Now that fields are populated, set limited edit mode (create hidden inputs and lock fields)
+            setLimitedEditMode();
+        }, 250);
+
+        // Clear any validation errors
+        document.querySelectorAll('.is-invalid').forEach(el => clearFieldError(el));
+    } catch (err) {
+        console.error('Error filling form from member:', err);
+    }
+}
+
+// When editing, restrict which fields are editable. Create hidden fields for values
+// that must still be submitted but should not be changed by the user.
+function setLimitedEditMode() {
+    try {
+        const form = document.getElementById('memberForm');
+        if (!form) return;
+
+        // Fields to lock from editing but still submit: session, anchal_name, anchal_code, type, designation
+        const lockFields = ['session', 'anchal_name', 'anchal_code', 'type', 'designation'];
+        lockFields.forEach(name => {
+            const el = document.getElementById(name);
+            if (!el) return;
+            // Create or update hidden input to carry value
+            let hidden = document.getElementById(name + '_hidden_submit');
+            if (!hidden) {
+                hidden = document.createElement('input');
+                hidden.type = 'hidden';
+                hidden.id = name + '_hidden_submit';
+                hidden.name = name; // same name so backend receives value
+                form.appendChild(hidden);
+            }
+            hidden.value = (el.value || '');
+
+            // Make visible field readonly/disabled in UI
+            if (el.tagName.toLowerCase() === 'select') {
+                el.disabled = true;
+            } else {
+                el.readOnly = true;
+            }
+        });
+
+        // Additionally, disable many other inputs to avoid changing related data
+        const otherDisable = ['mid', 'name', 'mobile_number', 'address', 'city', 'state', 'ex_post', 'remarks', 'photo'];
+        // We allow editing only name, mid, mobile_number, address, city, state, ex_post, remarks, photo
+        // So ensure these remain enabled; everything else already locked above
+
+        // Show an edit-mode banner so user knows fields are limited
+        let banner = document.getElementById('editModeBanner');
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'editModeBanner';
+            banner.className = 'alert alert-info';
+            banner.style.marginBottom = '15px';
+            banner.innerHTML = '<strong>Edit mode:</strong> Only Name, MID, Mobile, Address, City, State, Ex Post, Remarks and Photo are editable.';
+            const container = document.querySelector('.container-fluid');
+            if (container) container.insertBefore(banner, container.firstChild.nextSibling);
+        }
+
+        // Update hidden submits if user changes any locked values via scripts (unlikely)
+        // e.g., if anchal select change triggers, keep hidden in sync
+        ['session','anchal_name','anchal_code','type','designation'].forEach(name => {
+            const el = document.getElementById(name);
+            const hidden = document.getElementById(name + '_hidden_submit');
+            if (!el || !hidden) return;
+            el.addEventListener('change', function() { hidden.value = el.value || ''; });
+        });
+    } catch (e) {
+        console.error('Error setting limited edit mode:', e);
+    }
+}
+
 // Display photo preview from URL
 function displayPhotoPreview(photoUrl) {
     try {
@@ -1306,7 +1568,7 @@ function displayPhotoPreview(photoUrl) {
 }
 
 // Handle form submission
-function handleFormSubmit(e) {
+async function handleFormSubmit(e) {
     e.preventDefault();
     
     if (isSubmitting) return;
@@ -1331,35 +1593,71 @@ function handleFormSubmit(e) {
         showToast('Please fix all validation errors before submitting', 'error');
         return;
     }
+
+    // Pre-submit duplicate check: removed since same MID can exist with different types/designations
+    // Server will validate type+designation uniqueness
     
     isSubmitting = true;
     showLoading(true);
     
     const submitBtn = document.getElementById('submitBtn');
     const originalText = submitBtn.innerHTML;
-    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding Member...';
+    const editId = document.getElementById('edit_member_id').value;
+    if (editId) {
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating Member...';
+    } else {
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding Member...';
+    }
     submitBtn.disabled = true;
-    
+
     const formData = new FormData(form);
-    
-    fetch('/api/mahila-samiti-members', {
+    let url = '/api/mahila-samiti-members';
+    let fetchOptions = {
         method: 'POST',
         headers: {
             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
             'X-Requested-With': 'XMLHttpRequest'
         },
         body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showToast('Member added successfully! Redirecting...', 'success');
-            setTimeout(() => {
-                window.location.href = '/mahila-samiti-members';
-            }, 2000);
+    };
+
+    if (editId) {
+        url = `/api/mahila-samiti-members/${encodeURIComponent(editId)}`;
+        // Send a true PUT request for updates
+        fetchOptions.method = 'PUT';
+        // Do not append _method; send FormData directly with PUT
+        fetchOptions.body = formData;
+    }
+
+    try {
+        // Try primary request (PUT for edit, POST for create)
+        let response = await fetch(url, fetchOptions);
+
+        // If edit and primary failed (some servers don't accept multipart PUT), try fallback POST with _method=PUT
+        if (editId && !response.ok) {
+            // attempt fallback
+            const fallbackForm = new FormData(form);
+            fallbackForm.append('_method', 'PUT');
+            const fallbackOptions = {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: fallbackForm
+            };
+            const fallbackResp = await fetch(url, fallbackOptions);
+            response = fallbackResp;
+        }
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            showToast(editId ? 'Member updated successfully! Redirecting...' : 'Member added successfully! Redirecting...', 'success');
+            setTimeout(() => { window.location.href = '/mahila-samiti-members'; }, 1200);
         } else {
             // Handle specific duplicate entry error
-            if (data.message && data.message.includes('already exists')) {
+            if (data && data.message && data.message.includes('already exists')) {
                 const session = document.getElementById('session').value;
                 const mid = document.getElementById('mid').value;
                 const errorMessage = `
@@ -1378,33 +1676,27 @@ function handleFormSubmit(e) {
                         </div>
                     </div>
                 `;
-                
-                // Show detailed error modal
                 showDetailedErrorModal('Duplicate Entry Error', errorMessage);
             }
-            
-            if (data.errors) {
-                // Handle validation errors
+
+            if (data && data.errors) {
                 Object.keys(data.errors).forEach(field => {
                     const input = document.getElementById(field) || document.querySelector(`[name="${field}"]`);
-                    if (input) {
-                        showFieldError(input, data.errors[field][0]);
-                    }
+                    if (input) showFieldError(input, data.errors[field][0]);
                 });
             }
-            showToast(data.message || 'Error adding member', 'error');
+
+            showToast((data && data.message) ? data.message : 'Error adding/updating member', 'error');
         }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showToast('Error adding member. Please try again.', 'error');
-    })
-    .finally(() => {
+    } catch (error) {
+        console.error('Error submitting form:', error);
+        showToast('Error adding/updating member. Please try again.', 'error');
+    } finally {
         isSubmitting = false;
         showLoading(false);
         submitBtn.innerHTML = originalText;
         submitBtn.disabled = false;
-    });
+    }
 }
 
 // Toggle guardian fields based on selection
