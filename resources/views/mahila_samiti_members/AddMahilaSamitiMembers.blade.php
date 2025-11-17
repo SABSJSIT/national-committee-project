@@ -22,6 +22,14 @@
     }
     .table th {
         background-color: #f8f9fa;
+        white-space: nowrap;
+        font-size: 0.875rem;
+        padding: 0.5rem 0.25rem;
+    }
+    .table td {
+        font-size: 0.875rem;
+        padding: 0.5rem 0.25rem;
+        vertical-align: middle;
     }
     .btn-sm {
         padding: 0.25rem 0.5rem;
@@ -32,13 +40,79 @@
         border-color: #0d6efd;
     }
     .photo-preview {
-        max-width: 100px;
-        max-height: 100px;
+        max-width: 50px;
+        max-height: 50px;
         object-fit: cover;
     }
     .required {
         color: red;
     }
+    /* Responsive table without horizontal scroll */
+    .table-responsive {
+        overflow-x: hidden !important;
+    }
+    
+    /* Compact table styling */
+    .table-compact th,
+    .table-compact td {
+        padding: 0.375rem 0.25rem;
+        font-size: 0.8rem;
+        line-height: 1.2;
+    }
+    
+    /* Hide less important columns on smaller screens */
+    @media (max-width: 1200px) {
+        .hide-lg {
+            display: none !important;
+        }
+    }
+    
+    @media (max-width: 992px) {
+        .hide-md {
+            display: none !important;
+        }
+        .table th, .table td {
+            padding: 0.375rem 0.2rem;
+            font-size: 0.75rem;
+        }
+    }
+    
+    @media (max-width: 768px) {
+        .hide-sm {
+            display: none !important;
+        }
+        .table th, .table td {
+            padding: 0.25rem 0.15rem;
+            font-size: 0.7rem;
+        }
+        .photo-preview {
+            max-width: 35px;
+            max-height: 35px;
+        }
+    }
+    
+    /* Action buttons styling */
+    .action-buttons {
+        display: flex;
+        gap: 0.25rem;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    
+    .action-buttons .btn {
+        padding: 0.2rem 0.4rem;
+        font-size: 0.7rem;
+        line-height: 1;
+    }
+    
+    /* Text truncation for long content */
+    .text-truncate-custom {
+        max-width: 120px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
     /* Ensure modals are always visible */
     .modal {
         z-index: 2050 !important;
@@ -96,27 +170,47 @@
                         <button id="loadSessionBtn" class="btn btn-secondary btn-sm">Load</button>
                         <small class="text-muted ms-3">Data is loaded per selected session only.</small>
                     </div>
+                    
+                    <!-- Search Bar -->
+                    <div class="mb-3">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="input-group">
+                                    <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                    <input type="text" class="form-control" id="searchInput" placeholder="Search by name, designation, MID, phone, city, or anchal..." autocomplete="off">
+                                    <button class="btn btn-outline-secondary" type="button" id="clearSearchBtn">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                                <small class="text-muted">Search works across all visible data in the table</small>
+                            </div>
+                            <div class="col-md-6 text-end">
+                                <span id="searchResults" class="text-muted small"></span>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="mb-3 d-flex gap-2">
                         <button id="exportExcelBtn" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#excelFieldsModal"><i class="fas fa-file-excel"></i> Export Excel</button>
                         <button id="exportPdfBtn" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#pdfFieldsModal"><i class="fas fa-file-pdf"></i> Export PDF</button>
                     </div>
 
                     <div class="table-responsive">
-                        <table class="table table-striped table-hover" id="membersTable">
+                        <table class="table table-striped table-hover table-compact" id="membersTable">
                             <thead>
                                 <tr>
-                                    <th>S.No</th>
-                                    <th>Session</th>
-                                    <th>Photo</th>
-                                    <th>Name</th>
-                                    <th>Type</th>
-                                    <th>Designation</th>
-                                    <th>MID</th>
-                                    <th>Anchal Name</th>
-                                    <th>Phone</th>
-                                    <th>City</th>
-                                    <th>State</th>
-                                    <th>Actions</th>
+                                    <th style="width: 5%;">S.No</th>
+                                    <th style="width: 8%;" class="hide-md">Session</th>
+                                    <th style="width: 8%;">Photo</th>
+                                    <th style="width: 15%;">Name</th>
+                                    <th style="width: 10%;" class="hide-sm">Type</th>
+                                    <th style="width: 12%;">Designation</th>
+                                    <th style="width: 10%;" class="hide-lg">MID</th>
+                                    <th style="width: 12%;" class="hide-md">Anchal</th>
+                                    <th style="width: 10%;">Phone</th>
+                                    <th style="width: 10%;" class="hide-sm">City</th>
+                                    <th style="width: 10%;" class="hide-lg">State</th>
+                                    <th style="width: 12%;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="membersTableBody">
@@ -143,6 +237,10 @@ let isDownloading = false; // Prevent multiple downloads
 document.addEventListener('DOMContentLoaded', function() {
     // Load available sessions into the dropdown
     loadSessions();
+    
+    // Initialize search functionality
+    initializeSearch();
+    
     document.getElementById('loadSessionBtn').addEventListener('click', function() {
         const session = document.getElementById('sessionSelect').value;
         if (!session) {
@@ -485,10 +583,102 @@ function deleteMember(id) {
     }
 }
 
+// Global variable to store current members data for search
+let currentMembersData = [];
+let currentSession = '';
+
+// Search functionality
+function initializeSearch() {
+    const searchInput = document.getElementById('searchInput');
+    const clearSearchBtn = document.getElementById('clearSearchBtn');
+    const searchResults = document.getElementById('searchResults');
+
+    // Real-time search as user types
+    searchInput.addEventListener('input', function() {
+        const searchTerm = this.value.trim();
+        if (searchTerm.length === 0) {
+            // Show all data when search is empty
+            displayMembersGrouped(currentMembersData, currentSession);
+            searchResults.textContent = '';
+        } else if (searchTerm.length >= 2) {
+            // Search when at least 2 characters
+            performSearch(searchTerm);
+        }
+    });
+
+    // Clear search functionality
+    clearSearchBtn.addEventListener('click', function() {
+        searchInput.value = '';
+        displayMembersGrouped(currentMembersData, currentSession);
+        searchResults.textContent = '';
+        searchInput.focus();
+    });
+
+    // Enter key to search
+    searchInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const searchTerm = this.value.trim();
+            if (searchTerm.length >= 2) {
+                performSearch(searchTerm);
+            }
+        }
+    });
+}
+
+// Perform search across member data
+function performSearch(searchTerm) {
+    const searchResults = document.getElementById('searchResults');
+    
+    if (!currentMembersData || currentMembersData.length === 0) {
+        searchResults.textContent = 'No data to search';
+        return;
+    }
+
+    const term = searchTerm.toLowerCase();
+    const filteredMembers = currentMembersData.filter(member => {
+        return (
+            (member.name && member.name.toLowerCase().includes(term)) ||
+            (member.name_hindi && member.name_hindi.toLowerCase().includes(term)) ||
+            (member.designation && member.designation.toLowerCase().includes(term)) ||
+            (member.mid && member.mid.toString().toLowerCase().includes(term)) ||
+            (member.mobile_number && member.mobile_number.toString().includes(term)) ||
+            (member.city && member.city.toLowerCase().includes(term)) ||
+            (member.state && member.state.toLowerCase().includes(term)) ||
+            (member.anchal_name && member.anchal_name.toLowerCase().includes(term)) ||
+            (member.type && member.type.toLowerCase().includes(term)) ||
+            (member.husband_name && member.husband_name.toLowerCase().includes(term)) ||
+            (member.father_name && member.father_name.toLowerCase().includes(term))
+        );
+    });
+
+    // Update search results count
+    searchResults.textContent = `Found ${filteredMembers.length} of ${currentMembersData.length} members`;
+
+    // Display filtered results
+    if (filteredMembers.length === 0) {
+        const tbody = document.getElementById('membersTableBody');
+        tbody.innerHTML = `<tr><td colspan="12" class="text-center">No members found matching "${searchTerm}"</td></tr>`;
+    } else {
+        displayMembersGrouped(filteredMembers, currentSession, true);
+    }
+}
+
 // Load members for a specific session only
 function loadMembersBySession(session) {
     const tbody = document.getElementById('membersTableBody');
-    tbody.innerHTML = '<tr><td colspan="11" class="text-center">Loading...</td></tr>';
+    const searchInput = document.getElementById('searchInput');
+    const searchResults = document.getElementById('searchResults');
+    
+    tbody.innerHTML = '<tr><td colspan="12" class="text-center">Loading...</td></tr>';
+    
+    // Clear search when loading new session
+    if (searchInput) {
+        searchInput.value = '';
+    }
+    if (searchResults) {
+        searchResults.textContent = '';
+    }
 
     fetch(`/api/mahila-samiti-members?session=${encodeURIComponent(session)}`, {
         method: 'GET',
@@ -500,27 +690,43 @@ function loadMembersBySession(session) {
     .then(r => r.json())
     .then(res => {
         if (res.success && Array.isArray(res.data)) {
+            // Store data globally for search functionality
+            currentMembersData = res.data;
+            currentSession = session;
             displayMembersGrouped(res.data, session);
         } else {
-            tbody.innerHTML = '<tr><td colspan="11" class="text-center">No members found for this session</td></tr>';
+            currentMembersData = [];
+            currentSession = '';
+            tbody.innerHTML = '<tr><td colspan="12" class="text-center">No members found for this session</td></tr>';
         }
     })
     .catch(err => {
         console.error('Error loading members by session:', err);
-        tbody.innerHTML = '<tr><td colspan="11" class="text-center text-danger">Error loading members</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" class="text-center text-danger">Error loading members</td></tr>';
     });
 }
 
 // Renders members by requested order and grouping
-function displayMembersGrouped(members, session) {
+function displayMembersGrouped(members, session, isSearchResult = false) {
     const tbody = document.getElementById('membersTableBody');
     tbody.innerHTML = '';
 
     if (!members || members.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="11" class="text-center">No members found for the selected session</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" class="text-center">No members found for the selected session</td></tr>';
         return;
     }
 
+    // If this is a search result, display in simple list format without grouping
+    if (isSearchResult) {
+        const rows = [];
+        members.forEach((member, index) => {
+            rows.push(renderRow(member, session, index));
+        });
+        tbody.innerHTML = rows.join('\n');
+        return;
+    }
+
+    // Normal grouped display for full data
     // Helpers
     const byType = (typeKey) => members.filter(m => (m.type || '').toString().toLowerCase().includes(typeKey));
     const groupByAnchal = (arr) => arr.reduce((acc, cur) => {
@@ -567,7 +773,7 @@ function displayMembersGrouped(members, session) {
     // 1) PST (order: president, secretary, treasurer, co-treasurer)
     const pst = byType('pst');
     if (pst.length) {
-        rows.push(`<tr class="table-active"><td colspan="11"><strong>PST</strong></td></tr>`);
+        rows.push(`<tr class="table-active"><td colspan="12"><strong>PST</strong></td></tr>`);
 
         // helper to normalize designation strings for comparison
         const normalizeDesig = (d) => {
@@ -602,12 +808,12 @@ function displayMembersGrouped(members, session) {
     // 2) VP-SEC (anchal wise) -> within anchal: vice president then secretary
     const vpsec = byType('vp') .concat(byType('vp-sec')).filter((v, i, a) => a.indexOf(v) === i);
     if (vpsec.length) {
-        rows.push(`<tr class="table-active"><td colspan="11"><strong>VP-SEC (Anchal wise)</strong></td></tr>`);
+        rows.push(`<tr class="table-active"><td colspan="12"><strong>VP-SEC (Anchal wise)</strong></td></tr>`);
         const grouped = groupByAnchal(vpsec);
         const anchalKeys = Object.keys(grouped);
         const orderedAnchals = sortAnchals(anchalKeys);
         orderedAnchals.forEach(anchal => {
-            rows.push(`<tr class="table-secondary"><td colspan="11"><em>Anchal: ${anchal}</em></td></tr>`);
+            rows.push(`<tr class="table-secondary"><td colspan="12"><em>Anchal: ${anchal}</em></td></tr>`);
             const list = grouped[anchal];
             // vice president first
             list.filter(m => (m.designation || '').toString().toLowerCase().includes('vice')).forEach(m => rows.push(renderRow(m, session)));
@@ -635,19 +841,19 @@ function displayMembersGrouped(members, session) {
         }
     });
     if (sanyojika.length) {
-        rows.push(`<tr class="table-active"><td colspan="11"><strong>Sanyojika</strong></td></tr>`);
+        rows.push(`<tr class="table-active"><td colspan="12"><strong>Sanyojika</strong></td></tr>`);
         sanyojika.forEach(m => rows.push(renderRow(m, session)));
     }
 
     // 4) KSM members (anchal wise)
     const ksm = byType('ksm').concat(byType('ksm-member')).filter((v, i, a) => a.indexOf(v) === i);
     if (ksm.length) {
-        rows.push(`<tr class="table-active"><td colspan="11"><strong>KSM Members (Anchal wise)</strong></td></tr>`);
+        rows.push(`<tr class="table-active"><td colspan="12"><strong>KSM Members (Anchal wise)</strong></td></tr>`);
         const groupedK = groupByAnchal(ksm);
         const anchalKeysK = Object.keys(groupedK);
         const orderedAnchalsK = sortAnchals(anchalKeysK);
         orderedAnchalsK.forEach(anchal => {
-            rows.push(`<tr class="table-secondary"><td colspan="11"><em>Anchal: ${anchal}</em></td></tr>`);
+            rows.push(`<tr class="table-secondary"><td colspan="12"><em>Anchal: ${anchal}</em></td></tr>`);
             groupedK[anchal].forEach(m => rows.push(renderRow(m, session)));
         });
     }
@@ -672,8 +878,41 @@ function getPhotoUrl(m) {
 function renderRow(m, session, indexFallback) {
     const idx = typeof indexFallback === 'number' ? indexFallback + 1 : '';
     const photoUrl = getPhotoUrl(m);
-    const photoHtml = photoUrl ? ('<a href="' + photoUrl + '" target="_blank" rel="noopener"><img src="' + photoUrl + '" class="photo-preview rounded" style="max-width:70px; max-height:70px; object-fit:cover;"></a>') : '<i class="fas fa-user fa-2x text-muted"></i>';
-    const html = '\n        <tr>\n            <td>' + (idx || '') + '</td>\n            <td>' + (session || (m.session || '')) + '</td>\n            <td>' + photoHtml + '</td>\n            <td>' + (m.name || '') + '</td>\n            <td>' + ((m.type || '').toString().toUpperCase()) + '</td>\n            <td>' + (m.designation || '') + '</td>\n            <td>' + (m.mid || '') + '</td>\n            <td>' + (m.anchal_name || '') + '</td>\n            <td>' + (m.mobile_number || '') + '</td>\n            <td>' + (m.city || '') + '</td>\n            <td>' + (m.state || '') + '</td>\n            <td>\n                <button class="btn btn-sm btn-info me-1" onclick="viewMember(' + m.id + ')" title="View">\n                    <i class="fas fa-eye"></i>\n                </button>\n                <button class="btn btn-sm btn-primary me-1" onclick="editMember(' + m.id + ')" title="Edit">\n                    <i class="fas fa-edit"></i>\n                </button>\n                <button class="btn btn-sm btn-danger" onclick="deleteMember(' + m.id + ')" title="Delete">\n                    <i class="fas fa-trash"></i>\n                </button>\n            </td>\n        </tr>\n    ';
+    const photoHtml = photoUrl ? ('<a href="' + photoUrl + '" target="_blank" rel="noopener"><img src="' + photoUrl + '" class="photo-preview rounded"></a>') : '<i class="fas fa-user text-muted"></i>';
+    
+    // Truncate long text for better responsive display
+    const nameDisplay = (m.name || '').length > 15 ? (m.name || '').substring(0, 15) + '...' : (m.name || '');
+    const anchalDisplay = (m.anchal_name || '').length > 12 ? (m.anchal_name || '').substring(0, 12) + '...' : (m.anchal_name || '');
+    const designationDisplay = (m.designation || '').length > 12 ? (m.designation || '').substring(0, 12) + '...' : (m.designation || '');
+    
+    const html = `
+        <tr>
+            <td>${idx || ''}</td>
+            <td class="hide-md">${session || (m.session || '')}</td>
+            <td>${photoHtml}</td>
+            <td class="text-truncate-custom" title="${m.name || ''}">${nameDisplay}</td>
+            <td class="hide-sm">${((m.type || '').toString().toUpperCase())}</td>
+            <td title="${m.designation || ''}">${designationDisplay}</td>
+            <td class="hide-lg">${m.mid || ''}</td>
+            <td class="hide-md text-truncate-custom" title="${m.anchal_name || ''}">${anchalDisplay}</td>
+            <td>${m.mobile_number || ''}</td>
+            <td class="hide-sm">${m.city || ''}</td>
+            <td class="hide-lg">${m.state || ''}</td>
+            <td>
+                <div class="action-buttons">
+                    <button class="btn btn-sm btn-info" onclick="viewMember(${m.id})" title="View">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                    <button class="btn btn-sm btn-primary" onclick="editMember(${m.id})" title="Edit">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteMember(${m.id})" title="Delete">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `;
     return html;
 }
 

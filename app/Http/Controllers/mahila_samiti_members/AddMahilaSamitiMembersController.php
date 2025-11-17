@@ -72,8 +72,15 @@ class AddMahilaSamitiMembersController extends Controller
             ]);
 
             // Handle photo upload if present
-            if ($request->hasFile('photo')) {
-                $photo = $request->file('photo');
+            // Log request files to debug photo upload
+            Log::info('Request files:', $request->allFiles());
+            Log::info('Has file photo_file:', ['hasFile' => $request->hasFile('photo_file')]);
+            Log::info('Has photo field:', ['photo' => $request->input('photo')]);
+
+            // Check if photo is uploaded as file or base64
+            if ($request->hasFile('photo_file')) {
+                // Handle file upload
+                $photo = $request->file('photo_file');
 
                 // Validate image size (200KB)
                 if ($photo->getSize() > 200 * 1024) {
@@ -84,13 +91,63 @@ class AddMahilaSamitiMembersController extends Controller
                 }
 
                 // Create session-based folder path
-                $session = $data['session'] ?? 'default'; // Ensure session is not null
+                $session = $data['session'] ?? 'default';
                 $folderPath = 'public/mahila_samiti/' . $session;
 
-                $photoName = time() . '_' . preg_replace('/\s+/', '_', $photo->getClientOriginalName()); // Sanitize file name
+                $photoName = time() . '_' . preg_replace('/\s+/', '_', $photo->getClientOriginalName());
+
+                Log::info('Attempting to store photo at:', ['path' => $folderPath . '/' . $photoName]);
+
                 $photo->storeAs($folderPath, $photoName);
                 $data['photo'] = $session . '/' . $photoName;
+            } elseif ($request->input('photo') && strpos($request->input('photo'), 'data:image') === 0) {
+                // Handle base64 image
+                $base64Image = $request->input('photo');
+                
+                // Extract image data
+                $imageData = explode(',', $base64Image)[1];
+                $decodedImage = base64_decode($imageData);
+                
+                // Validate image size (200KB)
+                if (strlen($decodedImage) > 200 * 1024) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Photo size must be less than 200KB'
+                    ], 422);
+                }
+                
+                // Get image extension from base64 header
+                $mimeType = explode(';', explode(':', $base64Image)[1])[0];
+                $extension = explode('/', $mimeType)[1];
+                if ($extension === 'jpeg') $extension = 'jpg';
+                
+                // Create session-based folder path
+                $session = $data['session'] ?? 'default';
+                $folderPath = 'storage/app/public/mahila_samiti/' . $session;
+                
+                // Create directory if it doesn't exist
+                if (!file_exists($folderPath)) {
+                    mkdir($folderPath, 0755, true);
+                }
+                
+                $photoName = time() . '_photo.' . $extension;
+                $fullPath = $folderPath . '/' . $photoName;
+                
+                Log::info('Attempting to store base64 photo at:', ['path' => $fullPath]);
+                
+                // Save the image
+                if (file_put_contents($fullPath, $decodedImage)) {
+                    $data['photo'] = $session . '/' . $photoName;
+                    Log::info('Base64 photo saved successfully:', ['path' => $data['photo']]);
+                } else {
+                    Log::error('Failed to save base64 photo');
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Failed to save photo'
+                    ], 422);
+                }
             } else {
+                Log::info('No photo uploaded.');
                 $data['photo'] = null; // Set photo to null if not uploaded
             }
 
@@ -182,13 +239,13 @@ class AddMahilaSamitiMembersController extends Controller
             ]);
 
             // Handle photo upload if present
-            if ($request->hasFile('photo')) {
+            if ($request->hasFile('photo_file')) {
                 // Delete old photo if exists
                 if ($member->photo && Storage::exists('public/mahila_samiti/' . $member->photo)) {
                     Storage::delete('public/mahila_samiti/' . $member->photo);
                 }
 
-                $photo = $request->file('photo');
+                $photo = $request->file('photo_file');
 
                 // Validate image size (200KB)
                 if ($photo->getSize() > 200 * 1024) {
@@ -202,11 +259,59 @@ class AddMahilaSamitiMembersController extends Controller
                 $session = $data['session'] ?? $member->session;
                 $folderPath = 'public/mahila_samiti/' . $session;
 
-                $photoName = time() . '_' . preg_replace('/\s+/', '_', $photo->getClientOriginalName()); // Sanitize file name
+                $photoName = time() . '_' . preg_replace('/\s+/', '_', $photo->getClientOriginalName());
                 $photo->storeAs($folderPath, $photoName);
                 $data['photo'] = $session . '/' . $photoName;
+            } elseif ($request->input('photo') && strpos($request->input('photo'), 'data:image') === 0) {
+                // Delete old photo if exists
+                if ($member->photo && Storage::exists('public/mahila_samiti/' . $member->photo)) {
+                    Storage::delete('public/mahila_samiti/' . $member->photo);
+                }
+
+                // Handle base64 image
+                $base64Image = $request->input('photo');
+                
+                // Extract image data
+                $imageData = explode(',', $base64Image)[1];
+                $decodedImage = base64_decode($imageData);
+                
+                // Validate image size (200KB)
+                if (strlen($decodedImage) > 200 * 1024) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Photo size must be less than 200KB'
+                    ], 422);
+                }
+                
+                // Get image extension from base64 header
+                $mimeType = explode(';', explode(':', $base64Image)[1])[0];
+                $extension = explode('/', $mimeType)[1];
+                if ($extension === 'jpeg') $extension = 'jpg';
+                
+                // Create session-based folder path
+                $session = $data['session'] ?? $member->session;
+                $folderPath = 'storage/app/public/mahila_samiti/' . $session;
+                
+                // Create directory if it doesn't exist
+                if (!file_exists($folderPath)) {
+                    mkdir($folderPath, 0755, true);
+                }
+                
+                $photoName = time() . '_photo.' . $extension;
+                $fullPath = $folderPath . '/' . $photoName;
+                
+                // Save the image
+                if (file_put_contents($fullPath, $decodedImage)) {
+                    $data['photo'] = $session . '/' . $photoName;
+                } else {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Failed to save photo'
+                    ], 422);
+                }
             } else {
-                $data['photo'] = null; // Set photo to null if not uploaded
+                // Keep existing photo if no new photo is provided
+                unset($data['photo']);
             }
 
             $member->update($data);
@@ -387,7 +492,6 @@ class AddMahilaSamitiMembersController extends Controller
                     ]
                 ]
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
