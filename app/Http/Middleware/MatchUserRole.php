@@ -48,12 +48,17 @@ class MatchUserRole
         // If $user is an array (rare), try to access role key; else assume object with role prop
         $userRole = is_array($user) ? ($user['role'] ?? null) : ($user->role ?? null);
 
-        // Final check
+        // super_admin को हमेशा access दो (bypass role check)
+        if ($userRole === 'super_admin') {
+            return $next($request);
+        }
+
+        // Final check for other roles
         if (! in_array($userRole, $roles, true)) {
             if ($request->expectsJson() || $request->is('api/*')) {
                 return response()->json(['message' => 'Access denied'], 403);
             }
-            return redirect()->route('login')->with('error', 'Access denied');
+            return redirect()->route('dashboard.super_admin')->with('error', 'आपको इस page का access नहीं है।');
         }
 
         return $next($request);

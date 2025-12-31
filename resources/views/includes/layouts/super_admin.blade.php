@@ -158,6 +158,9 @@
           <a href="{{ route('dashboard.super_admin') }}" class="menu-item active">
             <span><i class="bi bi-grid-fill"></i> Dashboard</span>
           </a>
+          <a href="{{ route('session.management') }}" class="menu-item">
+            <span class="d-flex align-items-center gap-2"><i class="bi bi-calendar3"></i> Session Management</span>
+          </a>
         </div>
 
         @if($can('shramnopasak'))

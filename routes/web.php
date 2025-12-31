@@ -73,20 +73,77 @@ Route::post('/logout', function (Request $request) {
 |---------------------------------------------*/
 Route::middleware(['web', 'checkSession'])->group(function () {
 
-    // ✅ सिर्फ़ Super Admin Dashboard available रहेगा
+    // ✅ Dashboard - सभी authenticated users के लिए
     Route::get('/dashboard/super_admin', function () {
         return view('dashboards.super_admin.index');
     })->name('dashboard.super_admin');
 
-    // Mahila Samiti Members Pages
-    Route::get('/mahila-samiti-members', function () {
-        return view('mahila_samiti_members.AddMahilaSamitiMembers');
-    })->name('mahila-samiti-members');
+    /* ----------------------------------------
+    |  SUPER ADMIN ONLY ROUTES
+    |  (super_admin को हमेशा access है via middleware)
+    |-----------------------------------------*/
+    Route::middleware(['matchRole:super_admin'])->group(function () {
+        // Session Management - Only Super Admin
+        Route::get('/session-management', function () {
+            return view('session.Session');
+        })->name('session.management');
+    });
 
-    Route::get('/mahila-samiti-members/add', function () {
-        return view('mahila_samiti_members.AddMember');
-    })->name('mahila-samiti-members.add');
+    /* ----------------------------------------
+    |  MAHILA SAMITI ROUTES
+    |  (super_admin + mahila_samiti users)
+    |-----------------------------------------*/
+    Route::middleware(['matchRole:mahila_samiti'])->group(function () {
+        // Mahila Samiti Members Pages
+        Route::get('/mahila-samiti-members', function () {
+            return view('mahila_samiti_members.AddMahilaSamitiMembers');
+        })->name('mahila-samiti-members');
 
-    // FPDF Export Route
-    Route::get('/mahila-samiti-members/export-fpdf', [\App\Http\Controllers\mahila_samiti_members\MahilaSamitiMembersExportController::class, 'exportFPDF'])->name('mahila-samiti-members.export-fpdf');
+        Route::get('/mahila-samiti-members/add', function () {
+            return view('mahila_samiti_members.AddMember');
+        })->name('mahila-samiti-members.add');
+
+        // FPDF Export Route
+        Route::get('/mahila-samiti-members/export-fpdf', [\App\Http\Controllers\mahila_samiti_members\MahilaSamitiMembersExportController::class, 'exportFPDF'])->name('mahila-samiti-members.export-fpdf');
+    });
+
+    /* ----------------------------------------
+    |  SHRAMNOPASAK ROUTES (Example - add your routes)
+    |  (super_admin + shramnopasak users)
+    |-----------------------------------------*/
+    // Route::middleware(['matchRole:shramnopasak'])->group(function () {
+    //     Route::get('/shramnopasak', function () {
+    //         return view('shramnopasak.index');
+    //     })->name('shramnopasak');
+    // });
+
+    /* ----------------------------------------
+    |  SAHITYA ROUTES (Example - add your routes)
+    |  (super_admin + sahitya users)
+    |-----------------------------------------*/
+    // Route::middleware(['matchRole:sahitya'])->group(function () {
+    //     Route::get('/sahitya', function () {
+    //         return view('sahitya.index');
+    //     })->name('sahitya');
+    // });
+
+    /* ----------------------------------------
+    |  DISPATCH ROUTES (Example - add your routes)
+    |  (super_admin + dispatch users)
+    |-----------------------------------------*/
+    // Route::middleware(['matchRole:dispatch'])->group(function () {
+    //     Route::get('/dispatch', function () {
+    //         return view('dispatch.index');
+    //     })->name('dispatch');
+    // });
+
+    /* ----------------------------------------
+    |  YUVA SANGH ROUTES (Example - add your routes)
+    |  (super_admin + yuva_sangh users)
+    |-----------------------------------------*/
+    // Route::middleware(['matchRole:yuva_sangh'])->group(function () {
+    //     Route::get('/yuva-sangh', function () {
+    //         return view('yuva_sangh.index');
+    //     })->name('yuva-sangh');
+    // });
 });
