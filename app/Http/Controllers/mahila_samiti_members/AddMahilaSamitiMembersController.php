@@ -431,71 +431,118 @@ class AddMahilaSamitiMembersController extends Controller
     }
 
     /**
-     * Get dropdown data for form
+     * Get dropdown data for form (Optimized for performance)
+     * Cities are NOT loaded here - they are lazy loaded via getCitiesByAnchal()
      */
     public function getDropdownData()
     {
         try {
-            // Use only sessions that already exist in the database (distinct sessions from mahila_samiti_members)
-            $sessions = [];
-            if (DB::getSchemaBuilder()->hasTable('mahila_samiti_members')) {
-                $sessions = AddMahilaSamitiMembers::select('session')
-                    ->distinct()
-                    ->orderBy('session', 'desc')
-                    ->pluck('session')
-                    ->toArray();
+            // Cache key for dropdown data (cache for 1 hour)
+            $cacheKey = 'mahila_samiti_dropdown_data';
+            
+            // Try to get from cache first
+            $cachedData = cache($cacheKey);
+            if ($cachedData) {
+                return response()->json([
+                    'success' => true,
+                    'data' => $cachedData
+                ], 200);
             }
 
-            // Fetch anchals from database
-            $anchals = [];
-            if (DB::getSchemaBuilder()->hasTable('anchal')) {
-                $anchals = DB::table('anchal')
-                    ->select('anchal_id as id', 'name')
-                    ->orderBy('display_order')
-                    ->orderBy('name')
-                    ->get()
-                    ->toArray();
-            }
+            // Get sessions from database
+            $sessions = AddMahilaSamitiMembers::select('session')
+                ->distinct()
+                ->orderBy('session', 'desc')
+                ->pluck('session')
+                ->toArray();
 
-            // Fetch cities from database
-            $cities = [];
-            if (DB::getSchemaBuilder()->hasTable('cities')) {
-                $cities = DB::table('cities')
-                    ->select('city_id as id', 'city_name as name', 'state_id', 'anchal_id')
-                    ->orderBy('city_name')
-                    ->get()
-                    ->toArray();
-            }
+            // Fetch anchals from database (only 12 records - lightweight)
+            $anchals = DB::table('anchal')
+                ->select('anchal_id as id', 'name')
+                ->orderBy('display_order')
+                ->orderBy('name')
+                ->get()
+                ->toArray();
 
-            // Fetch states from database
-            $states = [];
-            if (DB::getSchemaBuilder()->hasTable('states')) {
-                $states = DB::table('states')
-                    ->select('state_id as id', 'state_name as name', 'state_code')
-                    ->orderBy('state_name')
-                    ->get()
-                    ->toArray();
-            }
+            // Fetch states from database (only 36 records - lightweight)
+            $states = DB::table('states')
+                ->select('state_id as id', 'state_name as name', 'state_code')
+                ->orderBy('state_name')
+                ->get()
+                ->toArray();
+
+            // NOTE: Cities are NOT loaded here (1700+ records)
+            // They are lazy-loaded via getCitiesByAnchal() when user selects anchal
+
+            $dropdownData = [
+                'sessions' => $sessions,
+                'anchals' => $anchals,
+                'cities' => [], // Empty - lazy loaded
+                'states' => $states,
+                'types' => [
+                    'pst' => 'PST',
+                    'vp-sec' => 'VP-SEC',
+                    'sanyojika' => 'Sanyojika',
+                    'ksm_members' => 'KSM Members'
+                ]
+            ];
+
+            // Cache the data for 1 hour
+            cache([$cacheKey => $dropdownData], now()->addHour());
 
             return response()->json([
                 'success' => true,
-                'data' => [
-                    'sessions' => $sessions,
-                    'anchals' => $anchals,
-                    'cities' => $cities,
-                    'states' => $states,
-                    'types' => [
-                        'pst' => 'PST',
-                        'vp-sec' => 'VP-SEC',
-                        'sanyojika' => 'Sanyojika',
-                        'ksm_members' => 'KSM Members'
-                    ]
-                ]
+                'data' => $dropdownData
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching dropdown data: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get cities by anchal (lazy load for performance)
+     */
+    public function getCitiesByAnchal(Request $request)
+    {
+        try {
+            $anchalId = $request->input('anchal_id');
+            
+            // Cache key for cities by anchal
+            $cacheKey = 'cities_anchal_' . ($anchalId ?? 'all');
+            
+            // Try cache first
+            $cachedCities = cache($cacheKey);
+            if ($cachedCities !== null) {
+                return response()->json([
+                    'success' => true,
+                    'cities' => $cachedCities
+                ], 200);
+            }
+
+            $query = DB::table('cities')
+                ->select('city_id as id', 'city_name as name', 'state_id', 'anchal_id');
+            
+            if ($anchalId) {
+                $query->where('anchal_id', $anchalId);
+            }
+            
+            $cities = $query->orderBy('city_name')->get()->toArray();
+
+            // Cache for 1 hour
+            cache([$cacheKey => $cities], now()->addHour());
+
+            return response()->json([
+                'success' => true,
+                'cities' => $cities
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching cities: ' . $e->getMessage()
             ], 500);
         }
     }

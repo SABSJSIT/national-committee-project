@@ -12,6 +12,7 @@ Route::apiResource('mahila-samiti-members', AddMahilaSamitiMembersController::cl
 Route::get('mahila-samiti-members-dropdown-data', [AddMahilaSamitiMembersController::class, 'getDropdownData']);
 Route::get('mahila-samiti-members-existing-combinations', [AddMahilaSamitiMembersController::class, 'getExistingCombinations']);
 Route::get('mahila-samiti-members-cities', [AddMahilaSamitiMembersController::class, 'getCities']);
+Route::get('mahila-samiti-members-cities-by-anchal', [AddMahilaSamitiMembersController::class, 'getCitiesByAnchal']);
 Route::get('mahila-samiti-members-states', [AddMahilaSamitiMembersController::class, 'getStates']);
 
 Route::post('/fetch-external-profile', [AddMahilaSamitiMembersController::class, 'fetchExternalProfile']);

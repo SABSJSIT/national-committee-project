@@ -174,7 +174,7 @@
                     <!-- Search Bar -->
                     <div class="mb-3">
                         <div class="row">
-                            <div class="col-md-6">
+                            <div class="col-md-6"> 
                                 <div class="input-group">
                                     <span class="input-group-text"><i class="fas fa-search"></i></span>
                                     <input type="text" class="form-control" id="searchInput" placeholder="Search by name, designation, MID, phone, city, or anchal..." autocomplete="off">

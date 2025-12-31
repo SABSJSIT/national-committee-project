@@ -78,6 +78,15 @@
         max-width: 150px;
         max-height: 150px;
         object-fit: cover;
+    }
+    
+    /* Modal z-index fix to appear above header/sidebar */
+    .modal {
+        z-index: 9999 !important;
+    }
+    
+    .modal-backdrop {
+        z-index: 9998 !important;
         border-radius: 10px;
         border: 3px solid #e9ecef;
     }
@@ -302,7 +311,7 @@
                                             <i class="fas fa-id-card text-primary"></i> MID <span class="required">*</span>
                                         </label>
                                         <input type="text" class="form-control" id="mid" name="mid" 
-                                               placeholder="Enter Member ID" required maxlength="20">
+                                               placeholder="Enter Member ID (max 6 digits)" required maxlength="6">
                                         <div class="invalid-feedback"></div>
                                     </div>
                                 </div>
@@ -566,6 +575,14 @@ document.addEventListener('DOMContentLoaded', function() {
     const params = new URLSearchParams(window.location.search);
     const editId = params.get('edit_id');
 
+    // Prevent Enter key from submitting form
+    document.getElementById('memberForm').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+            e.preventDefault();
+            return false;
+        }
+    });
+
     // Load dropdowns first, then initialize listeners and possibly prefill for edit
     loadDropdownData().then(() => {
         setupEventListeners();
@@ -632,6 +649,39 @@ function loadDropdownData() {
     });
 }
 
+// Load cities by anchal (lazy loading for better performance)
+// Instead of loading all 1700+ cities at once, we load only for selected anchal
+function loadCitiesByAnchal(anchalId, preselectedCity = null) {
+    const citySelect = document.getElementById('city');
+    citySelect.innerHTML = '<option value="">Loading cities...</option>';
+    citySelect.disabled = true;
+    
+    fetch(`/api/mahila-samiti-members-cities-by-anchal?anchal_id=${encodeURIComponent(anchalId)}`, {
+        method: 'GET',
+        headers: {
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        citySelect.innerHTML = '<option value="">Select City</option>';
+        if (data.success && data.cities) {
+            data.cities.forEach(city => {
+                const selected = preselectedCity && city.name === preselectedCity ? 'selected' : '';
+                citySelect.innerHTML += `<option value="${city.name}" ${selected}>${city.name}</option>`;
+            });
+            citySelect.disabled = false;
+        } else {
+            citySelect.innerHTML = '<option value="">No cities found</option>';
+        }
+    })
+    .catch(error => {
+        console.error('Error loading cities:', error);
+        citySelect.innerHTML = '<option value="">Error loading cities</option>';
+    });
+}
+
 // Populate dropdowns
 function populateDropdowns() {
     // Sessions are hardcoded in HTML now
@@ -645,14 +695,11 @@ function populateDropdowns() {
         });
     }
 
-    // Populate cities
+    // Cities are NOT loaded here anymore - they load when user selects anchal
+    // This improves page load time significantly (1700+ cities to 0 on initial load)
     const citySelect = document.getElementById('city');
-    citySelect.innerHTML = '<option value="">Select City</option>';
-    if (dropdownData.cities) {
-        dropdownData.cities.forEach(city => {
-            citySelect.innerHTML += `<option value="${city.name}">${city.name}</option>`;
-        });
-    }
+    citySelect.innerHTML = '<option value="">Select Anchal First</option>';
+    citySelect.disabled = true;
 
     // Populate states
     const stateSelect = document.getElementById('state');
@@ -843,11 +890,21 @@ function setupEventListeners() {
     // Session change event - update designations when session changes
     document.getElementById('session').addEventListener('change', updateDesignations);
     
-    // Anchal change event
+    // Anchal change event - Also loads cities for that anchal (lazy loading)
     document.getElementById('anchal_name').addEventListener('change', function() {
         const selectedOption = this.options[this.selectedIndex];
         const anchalCode = selectedOption.getAttribute('data-code') || '';
         document.getElementById('anchal_code').value = anchalCode;
+        
+        // Load cities for selected anchal (lazy loading for performance)
+        if (anchalCode) {
+            loadCitiesByAnchal(anchalCode);
+        } else {
+            // Reset city dropdown if no anchal selected
+            const citySelect = document.getElementById('city');
+            citySelect.innerHTML = '<option value="">Select Anchal First</option>';
+            citySelect.disabled = true;
+        }
         
         // Update designations when anchal changes
         updateDesignations();
@@ -1143,7 +1200,7 @@ function fetchProfile() {
 // Show profile selection modal when multiple profiles found
 function showProfileSelectionModal(profiles, mobileNumber) {
     const modalHtml = `
-        <div class="modal fade" id="profileSelectionModal" tabindex="-1" aria-labelledby="profileSelectionModalLabel" aria-hidden="true">
+        <div class="modal fade" id="profileSelectionModal" tabindex="-1" aria-labelledby="profileSelectionModalLabel" aria-hidden="true" style="z-index: 9999;">
             <div class="modal-dialog modal-lg">
                 <div class="modal-content">
                     <div class="modal-header">
@@ -1454,6 +1511,11 @@ function fillFormWithMember(member) {
                         const code = sel.getAttribute('data-code') || sel.dataset.code || '';
                         const codeEl = document.getElementById('anchal_code');
                         if (codeEl) codeEl.value = code;
+                        
+                        // Load cities for this anchal (lazy loading) with member's city preselected
+                        if (code) {
+                            loadCitiesByAnchal(code, member.city || null);
+                        }
                     }
                 } catch (e) {
                     // ignore

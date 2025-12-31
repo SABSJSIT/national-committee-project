@@ -50,7 +50,7 @@ class AddMahilaSamitiMembers extends Model
             'anchal_code' => 'required|string|max:50',
             'type' => 'required|in:pst,vp-sec,sanyojika,ksm_members',
             'designation' => 'required|string|max:100',
-            'mid' => 'required|string|max:50',
+            'mid' => 'required|string|max:6',
             'name' => 'required|string|max:100',
             'husband_name' => 'nullable|required_without:father_name|string|max:100',
             'father_name' => 'nullable|required_without:husband_name|string|max:100',
