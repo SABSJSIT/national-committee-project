@@ -161,6 +161,9 @@
           <a href="{{ route('session.management') }}" class="menu-item">
             <span class="d-flex align-items-center gap-2"><i class="bi bi-calendar3"></i> Session Management</span>
           </a>
+          <a href="{{ route('designation-type.management') }}" class="menu-item">
+            <span class="d-flex align-items-center gap-2"><i class="bi bi-person-badge"></i> Designation Type</span>
+          </a>
         </div>
 
         @if($can('shramnopasak'))
