@@ -668,6 +668,7 @@
           <span class="menu-text">Dashboard</span>
         </a>
 
+        @if($role === 'super_admin')
         <a href="{{ route('session.management') }}" class="menu-item {{ request()->routeIs('session.management') ? 'active' : '' }}">
           <span class="menu-icon"><i class="bi bi-calendar3"></i></span>
           <span class="menu-text">Session Management</span>
@@ -682,6 +683,7 @@
           <span class="menu-icon"><i class="bi bi-award-fill"></i></span>
           <span class="menu-text">Designation</span>
         </a>
+        @endif
 
         @if($can('shramnopasak'))
         <!-- Shramnopasak Section -->
