@@ -246,6 +246,56 @@
         margin-right: 4px;
     }
 
+    /* ============ CHECKBOX STYLES ============ */
+    .designation-type-checkbox {
+        display: flex;
+        align-items: center;
+        margin-bottom: 10px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        transition: var(--transition);
+        cursor: pointer;
+        background: rgba(102, 126, 234, 0.05);
+        border: 1px solid rgba(102, 126, 234, 0.15);
+    }
+
+    .designation-type-checkbox:hover {
+        background: rgba(102, 126, 234, 0.1);
+        border-color: rgba(102, 126, 234, 0.25);
+    }
+
+    .designation-type-checkbox input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        margin-right: 10px;
+        accent-color: #667eea;
+        cursor: pointer;
+    }
+
+    .designation-type-checkbox label {
+        margin: 0;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 14px;
+        color: #374151;
+        flex: 1;
+    }
+
+    .designation-type-checkbox.checked {
+        background: rgba(102, 126, 234, 0.15);
+        border-color: #667eea;
+    }
+
+    .designation-type-badge {
+        background: rgba(102, 126, 234, 0.1);
+        color: #667eea;
+        padding: 3px 8px;
+        border-radius: 15px;
+        font-size: 11px;
+        font-weight: 600;
+        margin-left: 8px;
+    }
+
     /* ============ PREMIUM TABLE ============ */
     .table-container {
         overflow-x: auto;
@@ -673,12 +723,17 @@
             <div class="col-md-4">
                 <div class="form-group">
                     <label class="form-label">
-                        <i class="bi bi-tag"></i> Designation Type <span class="required">*</span>
+                        <i class="bi bi-tag"></i> Designation Types <span class="required">*</span>
+                        <small style="color: #667eea; font-weight: 500; margin-left: 8px;">(Multiple select करें)</small>
                     </label>
-                    <select id="designation-type-id" class="form-control-premium">
-                        <option value="">-- Designation Type चुनें --</option>
-                        <!-- Options will be loaded dynamically -->
-                    </select>
+                    <div id="designation-types-container" class="form-control-premium" style="height: auto; min-height: 52px; padding: 12px;">
+                        <div id="designation-types-checkboxes">
+                            <!-- Checkboxes will be loaded dynamically -->
+                        </div>
+                        <small style="color: #6b7280; font-size: 12px; margin-top: 8px; display: block;">
+                            <i class="bi bi-info-circle"></i> हर selected type के लिए अलग designation entry बनेगी
+                        </small>
+                    </div>
                     <div id="designation_type_id-error" class="error-message"><i class="bi bi-exclamation-circle"></i> <span></span></div>
                 </div>
             </div>
@@ -847,6 +902,7 @@
     // Clear form errors
     function clearErrors() {
         document.querySelectorAll('.form-control-premium').forEach(el => el.classList.remove('error'));
+        document.getElementById('designation-types-container').classList.remove('error');
         document.querySelectorAll('.error-message').forEach(el => {
             el.style.display = 'none';
             el.querySelector('span').textContent = '';
@@ -856,7 +912,14 @@
     // Show field error
     function showFieldError(fieldId, message) {
         const field = document.getElementById(fieldId);
-        const errorEl = document.getElementById(fieldId.replace('designation-', '') + '-error');
+        let errorEl = document.getElementById(fieldId.replace('designation-', '') + '-error');
+        
+        // Handle special case for designation types
+        if (fieldId === 'designation-type-id') {
+            errorEl = document.getElementById('designation_type_id-error');
+            const container = document.getElementById('designation-types-container');
+            if (container) container.classList.add('error');
+        }
         
         if (field) field.classList.add('error');
         if (errorEl) {
@@ -883,17 +946,35 @@
         }
     }
 
-    // Populate designation type dropdown
+    // Populate designation type dropdown with checkboxes
     function populateDesignationTypeDropdown(types) {
-        const select = document.getElementById('designation-type-id');
-        select.innerHTML = '<option value="">-- Designation Type चुनें --</option>';
+        const container = document.getElementById('designation-types-checkboxes');
+        container.innerHTML = '';
         
         types.forEach(type => {
-            const option = document.createElement('option');
-            option.value = type.id;
-            option.textContent = `${type.name} (${typeLabels[type.type] || type.type})`;
-            select.appendChild(option);
+            const checkboxDiv = document.createElement('div');
+            checkboxDiv.className = 'designation-type-checkbox';
+            
+            checkboxDiv.innerHTML = `
+                <input type="checkbox" id="type-${type.id}" value="${type.id}" onchange="updateCheckboxState(this)">
+                <label for="type-${type.id}">
+                    ${type.name}
+                    <span class="designation-type-badge">${typeLabels[type.type] || type.type}</span>
+                </label>
+            `;
+            
+            container.appendChild(checkboxDiv);
         });
+    }
+
+    // Update checkbox visual state
+    function updateCheckboxState(checkbox) {
+        const container = checkbox.parentElement;
+        if (checkbox.checked) {
+            container.classList.add('checked');
+        } else {
+            container.classList.remove('checked');
+        }
     }
 
     // Load all designations
@@ -967,10 +1048,17 @@
         clearErrors();
         document.getElementById('form-card').style.display = 'block';
         document.getElementById('form-title').textContent = 'नया Designation जोड़ें';
-        document.getElementById('submit-text').textContent = 'Designation जोड़ें';
+        document.getElementById('submit-text').textContent = 'Designations जोड़ें';
         document.getElementById('designation-id').value = '';
         document.getElementById('designation-name').value = '';
-        document.getElementById('designation-type-id').value = '';
+        
+        // Clear all checkbox selections
+        const checkboxes = document.querySelectorAll('#designation-types-checkboxes input[type="checkbox"]');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = false;
+            updateCheckboxState(checkbox);
+        });
+        
         document.getElementById('designation-dept').value = '';
         
         // Scroll to form
@@ -998,7 +1086,14 @@
                 document.getElementById('submit-text').textContent = 'अपडेट करें';
                 document.getElementById('designation-id').value = data.id;
                 document.getElementById('designation-name').value = data.name;
-                document.getElementById('designation-type-id').value = data.designation_type_id;
+                
+                // For edit mode, select only the current designation type
+                const checkboxes = document.querySelectorAll('#designation-types-checkboxes input[type="checkbox"]');
+                checkboxes.forEach(checkbox => {
+                    checkbox.checked = (checkbox.value == data.designation_type_id);
+                    updateCheckboxState(checkbox);
+                });
+                
                 document.getElementById('designation-dept').value = data.designation_dept || 'all';
                 
                 // Scroll to form
@@ -1021,8 +1116,14 @@
         
         const id = document.getElementById('designation-id').value;
         const name = document.getElementById('designation-name').value.trim();
-        const designation_type_id = document.getElementById('designation-type-id').value;
         const designation_dept = document.getElementById('designation-dept').value;
+        
+        // Get selected designation types
+        const selectedTypes = [];
+        const checkboxes = document.querySelectorAll('#designation-types-checkboxes input[type="checkbox"]:checked');
+        checkboxes.forEach(checkbox => {
+            selectedTypes.push(parseInt(checkbox.value));
+        });
         
         // Client-side validation
         let hasError = false;
@@ -1035,8 +1136,8 @@
             hasError = true;
         }
         
-        if (!designation_type_id) {
-            showFieldError('designation-type-id', 'Designation Type चुनना आवश्यक है।');
+        if (selectedTypes.length === 0) {
+            showFieldError('designation-type-id', 'कम से कम एक Designation Type चुनना आवश्यक है।');
             hasError = true;
         }
         
@@ -1056,31 +1157,63 @@
         submitBtn.disabled = true;
         
         try {
-            const url = id ? `${API_BASE}/${id}` : API_BASE;
-            const method = id ? 'PUT' : 'POST';
-            
-            const response = await fetch(url, {
-                method: method,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({ name, designation_type_id, designation_dept })
-            });
-            
-            const result = await response.json();
-            
-            if (result.success) {
-                showToast(result.message, 'success');
-                cancelForm();
-                loadDesignations();
-            } else {
-                if (result.errors) {
-                    Object.keys(result.errors).forEach(key => {
-                        showFieldError(`designation-${key}`, result.errors[key][0]);
-                    });
+            if (id) {
+                // Edit mode - single designation update
+                const url = `${API_BASE}/${id}`;
+                const response = await fetch(url, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        name, 
+                        designation_type_id: selectedTypes[0], // For edit, use first selected type
+                        designation_dept 
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showToast(result.message, 'success');
+                    cancelForm();
+                    loadDesignations();
+                } else {
+                    if (result.errors) {
+                        Object.keys(result.errors).forEach(key => {
+                            showFieldError(`designation-${key}`, result.errors[key][0]);
+                        });
+                    }
+                    showToast(result.message || 'त्रुटि हुई।', 'error');
                 }
-                showToast(result.message || 'त्रुटि हुई।', 'error');
+            } else {
+                // Add mode - multiple designations creation
+                const promises = selectedTypes.map(designation_type_id => {
+                    return fetch(API_BASE, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({ name, designation_type_id, designation_dept })
+                    });
+                });
+                
+                const responses = await Promise.all(promises);
+                const results = await Promise.all(responses.map(r => r.json()));
+                
+                const successCount = results.filter(r => r.success).length;
+                const totalCount = results.length;
+                
+                if (successCount === totalCount) {
+                    showToast(`सफलतापूर्वक ${successCount} Designations जोड़े गए।`, 'success');
+                    cancelForm();
+                    loadDesignations();
+                } else {
+                    showToast(`${successCount}/${totalCount} Designations जोड़े गए। कुछ में त्रुटि हुई।`, 'warning');
+                    loadDesignations();
+                }
             }
         } catch (error) {
             console.error('Error:', error);
