@@ -401,8 +401,8 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function loadSessions() {
-    // Use existing dropdown-data endpoint which returns sessions, anchals, cities, states
-    fetch('/api/mahila-samiti-members-dropdown-data', {
+    // Use new dropdown-data-all endpoint which returns all sessions for list page
+    fetch('/api/mahila-samiti-members-dropdown-data-all', {
         method: 'GET',
         headers: {
             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
@@ -413,12 +413,30 @@ function loadSessions() {
     .then(data => {
         if (data.success && data.data && Array.isArray(data.data.sessions)) {
             const sel = document.getElementById('sessionSelect');
+            let activeSessionValue = null;
+            
             data.data.sessions.forEach(s => {
                 const opt = document.createElement('option');
-                opt.value = s;
-                opt.textContent = s;
+                // s is now an object with 'name' and 'is_active' properties
+                opt.value = s.name;
+                opt.textContent = s.name + (s.is_active ? ' (Active)' : '');
+                
+                // If this session is active, mark it for selection
+                if (s.is_active) {
+                    activeSessionValue = s.name;
+                }
+                
                 sel.appendChild(opt);
             });
+            
+            // Auto-select the active session
+            if (activeSessionValue) {
+                sel.value = activeSessionValue;
+                // Trigger change event to show export buttons
+                sel.dispatchEvent(new Event('change'));
+                // Auto-load the active session data
+                loadMembersBySession(activeSessionValue);
+            }
         } else {
             console.warn('Dropdown data endpoint did not return sessions as expected:', data);
         }

@@ -4,6 +4,9 @@ namespace App\Http\Controllers\mahila_samiti_members;
 
 use App\Http\Controllers\Controller;
 use App\Models\mahila_samiti_members\AddMahilaSamitiMembers;
+use App\Models\Session\Session;
+use App\Models\DesignationType\DesignationType;
+use App\Models\Designation\Designation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -387,11 +390,23 @@ class AddMahilaSamitiMembersController extends Controller
         switch ($type) {
             case 'pst':
                 // PST: Only one of each designation per session (across all anchals)
+                // Main posts like President, Secretary, Treasurer are unique per session
                 if (in_array($designation, $existingDesignations)) {
-                    return [
-                        'valid' => false,
-                        'message' => "A {$designation} for {$type} already exists in session {$session}. Each session can have only one {$designation} across all anchals."
-                    ];
+                    // Normalize designation for better message
+                    $normalizedDesig = trim(strtolower($designation));
+                    $isMainPost = in_array($normalizedDesig, ['president', 'secretary', 'treasurer', 'co treasurer']);
+                    
+                    if ($isMainPost) {
+                        return [
+                            'valid' => false,
+                            'message' => "केवल एक {$designation} प्रति सत्र की अनुमति है। सत्र {$session} में पहले से ही एक {$designation} मौजूद है।"
+                        ];
+                    } else {
+                        return [
+                            'valid' => false,
+                            'message' => "A {$designation} for {$type} already exists in session {$session}. Each session can have only one {$designation} across all anchals."
+                        ];
+                    }
                 }
                 break;
 
@@ -432,44 +447,57 @@ class AddMahilaSamitiMembersController extends Controller
 
     /**
      * Get dropdown data for form (Optimized for performance)
-     * Cities are NOT loaded here - they are lazy loaded via getCitiesByAnchal()
+     * Sessions and Designation Types are fetched fresh for real-time updates
+     * Static data (anchals, states) are cached for performance
      */
     public function getDropdownData()
     {
         try {
-            // Cache key for dropdown data (cache for 1 hour)
-            $cacheKey = 'mahila_samiti_dropdown_data';
-            
-            // Try to get from cache first
-            $cachedData = cache($cacheKey);
-            if ($cachedData) {
-                return response()->json([
-                    'success' => true,
-                    'data' => $cachedData
-                ], 200);
-            }
-
-            // Get sessions from database
-            $sessions = AddMahilaSamitiMembers::select('session')
-                ->distinct()
-                ->orderBy('session', 'desc')
-                ->pluck('session')
+            // Get ONLY ACTIVE sessions from sessions table for 'shree/mahila' type
+            // NO CACHING - to reflect changes immediately
+            // Only fetch active sessions for dropdown
+            $sessions = Session::where('type', 'shree/mahila')
+                ->where('is_active', true)
+                ->orderBy('name', 'desc')
+                ->get(['name', 'is_active'])
                 ->toArray();
 
-            // Fetch anchals from database (only 12 records - lightweight)
-            $anchals = DB::table('anchal')
-                ->select('anchal_id as id', 'name')
-                ->orderBy('display_order')
+            // Get designation types for mahila_samiti (for the Type dropdown)
+            // NO CACHING - to reflect changes immediately
+            $designationTypes = DesignationType::select('id', 'name', 'type')
+                ->whereIn('type', ['mahila_samiti', 'for_all'])
                 ->orderBy('name')
                 ->get()
                 ->toArray();
 
-            // Fetch states from database (only 36 records - lightweight)
-            $states = DB::table('states')
-                ->select('state_id as id', 'state_name as name', 'state_code')
-                ->orderBy('state_name')
-                ->get()
-                ->toArray();
+            // Cache key for static dropdown data
+            $staticCacheKey = 'mahila_samiti_static_dropdown_data';
+            
+            // Try to get static data from cache first
+            $cachedStaticData = cache($staticCacheKey);
+            
+            if ($cachedStaticData) {
+                $anchals = $cachedStaticData['anchals'];
+                $states = $cachedStaticData['states'];
+            } else {
+                // Fetch anchals from database (only 12 records - static data)
+                $anchals = DB::table('anchal')
+                    ->select('anchal_id as id', 'name')
+                    ->orderBy('display_order')
+                    ->orderBy('name')
+                    ->get()
+                    ->toArray();
+
+                // Fetch states from database (only 36 records - static data)
+                $states = DB::table('states')
+                    ->select('state_id as id', 'state_name as name', 'state_code')
+                    ->orderBy('state_name')
+                    ->get()
+                    ->toArray();
+
+                // Cache static data for 24 hours
+                cache([$staticCacheKey => ['anchals' => $anchals, 'states' => $states]], now()->addDay());
+            }
 
             // NOTE: Cities are NOT loaded here (1700+ records)
             // They are lazy-loaded via getCitiesByAnchal() when user selects anchal
@@ -479,16 +507,82 @@ class AddMahilaSamitiMembersController extends Controller
                 'anchals' => $anchals,
                 'cities' => [], // Empty - lazy loaded
                 'states' => $states,
-                'types' => [
-                    'pst' => 'PST',
-                    'vp-sec' => 'VP-SEC',
-                    'sanyojika' => 'Sanyojika',
-                    'ksm_members' => 'KSM Members'
-                ]
+                'designationTypes' => $designationTypes
             ];
 
-            // Cache the data for 1 hour
-            cache([$cacheKey => $dropdownData], now()->addHour());
+            return response()->json([
+                'success' => true,
+                'data' => $dropdownData
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching dropdown data: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get dropdown data for list page (with all sessions including inactive ones)
+     */
+    public function getDropdownDataAll()
+    {
+        try {
+            // Get ALL sessions from sessions table for 'shree/mahila' type (for list page)
+            // NO CACHING - to reflect changes immediately
+            // Include is_active flag so frontend can auto-select the active one
+            $sessions = Session::where('type', 'shree/mahila')
+                ->orderBy('name', 'desc')
+                ->get(['name', 'is_active'])
+                ->toArray();
+
+            // Get designation types for mahila_samiti (for the Type dropdown)
+            // NO CACHING - to reflect changes immediately
+            $designationTypes = DesignationType::select('id', 'name', 'type')
+                ->whereIn('type', ['mahila_samiti', 'for_all'])
+                ->orderBy('name')
+                ->get()
+                ->toArray();
+
+            // Cache key for static dropdown data
+            $staticCacheKey = 'mahila_samiti_static_dropdown_data';
+            
+            // Try to get static data from cache first
+            $cachedStaticData = cache($staticCacheKey);
+            
+            if ($cachedStaticData) {
+                $anchals = $cachedStaticData['anchals'];
+                $states = $cachedStaticData['states'];
+            } else {
+                // Fetch anchals from database (only 12 records - static data)
+                $anchals = DB::table('anchal')
+                    ->select('anchal_id as id', 'name')
+                    ->orderBy('display_order')
+                    ->orderBy('name')
+                    ->get()
+                    ->toArray();
+
+                // Fetch states from database (only 36 records - static data)
+                $states = DB::table('states')
+                    ->select('state_id as id', 'state_name as name', 'state_code')
+                    ->orderBy('state_name')
+                    ->get()
+                    ->toArray();
+
+                // Cache static data for 24 hours
+                cache([$staticCacheKey => ['anchals' => $anchals, 'states' => $states]], now()->addHours(24));
+            }
+
+            // NOTE: Cities are NOT loaded here (1700+ records)
+            // They are lazy-loaded via getCitiesByAnchal() when user selects anchal
+
+            $dropdownData = [
+                'sessions' => $sessions,
+                'anchals' => $anchals,
+                'cities' => [], // Empty - lazy loaded
+                'states' => $states,
+                'designationTypes' => $designationTypes
+            ];
 
             return response()->json([
                 'success' => true,
@@ -767,6 +861,43 @@ class AddMahilaSamitiMembersController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to connect to external profile service: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get designations by designation type
+     * Filters designations where designation_dept is 'mahila_samiti' or 'all'
+     */
+    public function getDesignationsByType(Request $request)
+    {
+        try {
+            $designationTypeId = $request->input('designation_type_id');
+            
+            if (!$designationTypeId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Designation type ID is required'
+                ], 400);
+            }
+
+            // Get designations for the specified type where dept is mahila_samiti or all
+            $designations = Designation::select('id', 'name', 'designation_type_id', 'designation_dept')
+                ->where('designation_type_id', $designationTypeId)
+                ->whereIn('designation_dept', ['mahila_samiti', 'all'])
+                ->orderBy('name')
+                ->get()
+                ->toArray();
+
+            return response()->json([
+                'success' => true,
+                'designations' => $designations
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching designations: ' . $e->getMessage()
             ], 500);
         }
     }

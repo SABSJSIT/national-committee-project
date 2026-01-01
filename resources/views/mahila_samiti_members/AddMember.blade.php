@@ -222,10 +222,6 @@
                                         </label>
                                         <select class="form-select" id="session" name="session" required>
                                             <option value="">Select Session</option>
-                                            <option value="2021-23">2021-23</option>
-                                            <option value="2023-25">2023-25</option>
-                                            <option value="2025-27">2025-27</option>
-
                                         </select>
                                         <div class="invalid-feedback"></div>
                                     </div>
@@ -261,10 +257,6 @@
                                         </label>
                                         <select class="form-select" id="type" name="type" required>
                                             <option value="">Select Type</option>
-                                            <option value="pst">PST</option>
-                                            <option value="vp-sec">VP-SEC</option>
-                                            <option value="sanyojika">Sanyojika</option>
-                                            <option value="ksm_members">KSM Members</option>
                                         </select>
                                         <div class="invalid-feedback"></div>
                                     </div>
@@ -684,7 +676,33 @@ function loadCitiesByAnchal(anchalId, preselectedCity = null) {
 
 // Populate dropdowns
 function populateDropdowns() {
-    // Sessions are hardcoded in HTML now
+    // Populate sessions from database (now returns only active sessions)
+    const sessionSelect = document.getElementById('session');
+    sessionSelect.innerHTML = '<option value="">Select Session</option>';
+    if (dropdownData.sessions && dropdownData.sessions.length > 0) {
+        
+        dropdownData.sessions.forEach(session => {
+            // session is now an object: { name: "...", is_active: true }
+            // Since only active sessions are fetched, no need to show "(Active)" text
+            sessionSelect.innerHTML += `<option value="${session.name}">${session.name}</option>`;
+        });
+        
+        // Auto-select the first session if only one active session exists
+        if (dropdownData.sessions.length === 1) {
+            sessionSelect.value = dropdownData.sessions[0].name;
+        }
+    } else {
+        sessionSelect.innerHTML = '<option value="">No active sessions available</option>';
+    }
+    
+    // Populate designation types (Type dropdown)
+    const typeSelect = document.getElementById('type');
+    typeSelect.innerHTML = '<option value="">Select Type</option>';
+    if (dropdownData.designationTypes) {
+        dropdownData.designationTypes.forEach(designationType => {
+            typeSelect.innerHTML += `<option value="${designationType.id}" data-name="${designationType.name}">${designationType.name}</option>`;
+        });
+    }
     
     // Populate anchals
     const anchalSelect = document.getElementById('anchal_name');
@@ -710,47 +728,68 @@ function populateDropdowns() {
         });
     }
 
-    // Populate designations based on type
+    // Populate designations based on type (empty initially)
     updateDesignations();
 }
 
-// Update designations based on selected type
+// Update designations based on selected type (designation type id)
 function updateDesignations() {
-    const type = document.getElementById('type').value;
+    const typeSelect = document.getElementById('type');
+    const designationTypeId = typeSelect.value;
+    const designationTypeName = typeSelect.options[typeSelect.selectedIndex]?.dataset?.name || '';
     const session = document.getElementById('session').value;
     const anchalName = document.getElementById('anchal_name').value;
     const designationSelect = document.getElementById('designation');
+    const designationInfo = document.getElementById('designationInfo');
     
     designationSelect.innerHTML = '<option value="">Select Designation</option>';
+    designationInfo.innerHTML = '';
     
-    if (!type) return;
+    if (!designationTypeId) return;
     
-    // If session selected, check for existing combinations.
-    // For Sanyojika we need global uniqueness across anchals, so do not include anchalName
-    if (session) {
-        if (type === 'sanyojika') {
-            // Ask backend for existing combinations for the session and type only (global)
-            checkExistingCombinations(session, null, type);
-        } else if (anchalName) {
-            checkExistingCombinations(session, anchalName, type);
-        } else {
-            populateDesignationOptions(type, []);
+    // Fetch designations from database based on designation type
+    showLoading(true);
+    
+    fetch(`/api/mahila-samiti-members-designations-by-type?designation_type_id=${encodeURIComponent(designationTypeId)}`, {
+        method: 'GET',
+        headers: {
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+            'X-Requested-With': 'XMLHttpRequest'
         }
-    } else {
-        // If session or anchal not selected, show all options
-        populateDesignationOptions(type, []);
-    }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.designations) {
+            // Store designations for later use
+            const availableDesignations = data.designations;
+            
+            // If session selected, check for existing combinations
+            if (session) {
+                checkExistingCombinations(session, anchalName, designationTypeName, availableDesignations);
+            } else {
+                // If session not selected, show all designations
+                populateDesignationOptions(availableDesignations, [], designationTypeName);
+                showLoading(false);
+            }
+        } else {
+            designationSelect.innerHTML = '<option value="">No designations available</option>';
+            showLoading(false);
+        }
+    })
+    .catch(error => {
+        console.error('Error fetching designations:', error);
+        designationSelect.innerHTML = '<option value="">Error loading designations</option>';
+        showLoading(false);
+    });
 }
 
 // Check existing combinations for the selected session, anchal, and type
-function checkExistingCombinations(session, anchalName, type) {
-    showLoading(true);
+function checkExistingCombinations(session, anchalName, typeName, availableDesignations) {
+    // Build API URL with type name (stored in type field in database)
+    let apiUrl = `/api/mahila-samiti-members-existing-combinations?session=${encodeURIComponent(session)}&type=${encodeURIComponent(typeName)}`;
     
-    // For PST, check across all anchals for the session
-    let apiUrl = `/api/mahila-samiti-members-existing-combinations?session=${encodeURIComponent(session)}&type=${encodeURIComponent(type)}`;
-    
-    // For other types, include anchal in the check
-    if (type !== 'pst') {
+    // Include anchal in the check if provided
+    if (anchalName) {
         apiUrl += `&anchal_name=${encodeURIComponent(anchalName)}`;
     }
     
@@ -765,31 +804,34 @@ function checkExistingCombinations(session, anchalName, type) {
     .then(data => {
         if (data.success) {
             const usedDesignations = data.combinations || [];
-            populateDesignationOptions(type, usedDesignations);
+            populateDesignationOptions(availableDesignations, usedDesignations, typeName);
         } else {
-            populateDesignationOptions(type, []);
+            populateDesignationOptions(availableDesignations, [], typeName);
             console.error('Error fetching existing combinations:', data.message);
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        populateDesignationOptions(type, []);
+        populateDesignationOptions(availableDesignations, [], typeName);
     })
     .finally(() => {
         showLoading(false);
     });
 }
 
-    // Populate designation options with disabled state for used ones
-function populateDesignationOptions(type, usedDesignations) {
+// Populate designation options with disabled state for used ones
+function populateDesignationOptions(availableDesignations, usedDesignations, typeName) {
     const designationSelect = document.getElementById('designation');
     const designationInfo = document.getElementById('designationInfo');
     
     designationSelect.innerHTML = '<option value="">Select Designation</option>';
     designationInfo.innerHTML = '';
     
-    let availableDesignations = [];
-    let maxEntries = 0;
+    if (!availableDesignations || availableDesignations.length === 0) {
+        designationSelect.innerHTML = '<option value="">No designations available for this type</option>';
+        return;
+    }
+    
     let currentCount = usedDesignations.length;
 
     // Edit-mode context: allow the current member's designation to remain selectable
@@ -798,7 +840,7 @@ function populateDesignationOptions(type, usedDesignations) {
     const origType = (document.getElementById('edit_member_original_type') || {}).value || '';
     const currentSession = (document.getElementById('session') || {}).value || '';
     const currentDesignationStored = (document.getElementById('designation') || {}).dataset ? (document.getElementById('designation').dataset.current || '') : '';
-    const isExemptContext = editId && origSession && origType && (origSession === currentSession) && (origType === type);
+    const isExemptContext = editId && origSession && origType && (origSession === currentSession) && (origType === typeName);
 
     // Helper to normalize designation strings for comparison
     const normalize = (s) => {
@@ -808,49 +850,13 @@ function populateDesignationOptions(type, usedDesignations) {
     const usedNorm = usedDesignations.map(d => normalize(d));
     const currentDesigNorm = normalize(currentDesignationStored || '');
     
-    if (type === 'pst') {
-        availableDesignations = ['President', 'Secretary', 'Treasurer', 'Co-Treasurer'];
-        maxEntries = 4;
-    } else if (type === 'vp-sec') {
-        availableDesignations = ['Vice-President', 'Secretary'];
-        maxEntries = 2;
-    } else if (type === 'sanyojika') {
-        // Use the requested 13 'pravartiya' names for Sanyojika designations
-        availableDesignations = [
-            'Sangathan',
-            'Kesariya Karyashala',
-            'Parivaranjali',
-            "Sadhumargi Women's Motivational Fourm",
-            'Yuvati Shakti',
-            'Sarwadharmi Sahyog',
-            'Samta Chhatravratti',
-            'Reporting System',
-            'Shramanopasak Sanyojika',
-            'International',
-            'Pratikraman Sanyojika',
-            'Sajjhayami Rao Saya',
-            'Golden Steps'
-        ];
-        maxEntries = 13;
-    } else if (type === 'ksm_members') {
-        availableDesignations = ['KSM Members'];
-        // No hard limit on KSM members per anchal (allow any number)
-    }
-    
-    // We'll always populate options but may disable them. Compute whether to fully disable later.
+    // We'll always populate options but may disable them
     designationSelect.disabled = false;
     
-    // For KSM Members, allow multiple entries with no enforced upper limit
-    if (type === 'ksm_members') {
-        designationSelect.innerHTML += `<option value="KSM Members">KSM Members</option>`;
-        designationInfo.innerHTML = `<span class="text-success">✅ ${currentCount} KSM members already added for this anchal in the selected session</span>`;
-        return;
-    }
-    
-    // For other types, disable already used designations except when editing the same member in the same session/type
+    // Populate designation options from database
     let availableCount = 0;
     availableDesignations.forEach(designation => {
-        const desNorm = normalize(designation);
+        const desNorm = normalize(designation.name);
         const isUsed = usedNorm.includes(desNorm);
         // If in edit mode and original session/type match current, allow the member's own designation
         const exemptThis = isExemptContext && desNorm === currentDesigNorm && currentDesigNorm !== '';
@@ -861,24 +867,24 @@ function populateDesignationOptions(type, usedDesignations) {
 
         if (!disabled) availableCount++;
 
-        designationSelect.innerHTML += `<option value="${designation}" ${disabledAttr} ${styleAttr}>${designation}${usedText}</option>`;
+        designationSelect.innerHTML += `<option value="${designation.name}" ${disabledAttr} ${styleAttr}>${designation.name}${usedText}</option>`;
     });
     
     // Show info about available vs used designations
-    const scope = type === 'pst' ? 'session' : 'session and anchal';
+    const maxEntries = availableDesignations.length;
     if (availableCount === 0) {
         // If editing and exempt context, allow the current designation even if others are full
         if (isExemptContext && currentDesigNorm) {
-            designationInfo.innerHTML = `<span class="text-info">ℹ️ Current designation is retained for this member; other designations are filled for this ${scope}.</span>`;
+            designationInfo.innerHTML = `<span class="text-info">ℹ️ Current designation is retained for this member; other designations are filled.</span>`;
         } else {
-            designationInfo.innerHTML = `<span class="designation-warning">❌ All designations for this type have been filled in the selected ${scope}</span>`;
+            designationInfo.innerHTML = `<span class="designation-warning">❌ All designations for this type have been filled</span>`;
             // If not editing or nothing to exempt, disable the select to prevent new entries
             designationSelect.disabled = true;
         }
     } else if (currentCount === 0) {
-        designationInfo.innerHTML = `<span class="text-info">ℹ️ ${availableCount} designation${availableCount > 1 ? 's' : ''} available for this type in the selected ${scope}</span>`;
+        designationInfo.innerHTML = `<span class="text-info">ℹ️ ${availableCount} designation${availableCount > 1 ? 's' : ''} available for this type</span>`;
     } else {
-        designationInfo.innerHTML = `<span class="text-warning">⚠️ ${currentCount} filled, ${availableCount} available for this type in the selected ${scope}</span>`;
+        designationInfo.innerHTML = `<span class="text-warning">⚠️ ${currentCount} filled, ${availableCount} available for this type</span>`;
     }
 }
 
@@ -1063,7 +1069,7 @@ function handlePhotoSelection(input) {
         }
         
         // Check file type
-        if (!file.type.startsWith('image/')) {
+        if (!file || !file.type || !file.type.startsWith('image/')) {
             showFieldError(input, 'Please select a valid image file');
             input.value = '';
             photoField.value = '';
@@ -1479,8 +1485,17 @@ function fillFormWithMember(member) {
             // set current designation into dataset so populateDesignationOptions can exempt it
             const desEl = document.getElementById('designation');
             if (desEl) desEl.dataset.current = member.designation || '';
-            if (t) t.value = member.type;
-            if (t) t.dispatchEvent(new Event('change'));
+            
+            // Find and select the option by matching the data-name attribute (type name)
+            if (t) {
+                for (let option of t.options) {
+                    if (option.dataset.name && option.dataset.name.toLowerCase() === (member.type || '').toLowerCase()) {
+                        option.selected = true;
+                        break;
+                    }
+                }
+                t.dispatchEvent(new Event('change'));
+            }
         }
 
         // Wait a tick to allow updateDesignations to repopulate options
@@ -1673,6 +1688,15 @@ async function handleFormSubmit(e) {
     submitBtn.disabled = true;
 
     const formData = new FormData(form);
+    
+    // Replace type ID with type name (from data-name attribute)
+    // This maintains backward compatibility with the database schema
+    const typeSelect = document.getElementById('type');
+    const selectedOption = typeSelect.options[typeSelect.selectedIndex];
+    if (selectedOption && selectedOption.dataset.name) {
+        formData.set('type', selectedOption.dataset.name);
+    }
+    
     let url = '/api/mahila-samiti-members';
     let fetchOptions = {
         method: 'POST',
@@ -1700,6 +1724,12 @@ async function handleFormSubmit(e) {
             // attempt fallback
             const fallbackForm = new FormData(form);
             fallbackForm.append('_method', 'PUT');
+            
+            // Replace type ID with type name for fallback too
+            if (selectedOption && selectedOption.dataset.name) {
+                fallbackForm.set('type', selectedOption.dataset.name);
+            }
+            
             const fallbackOptions = {
                 method: 'POST',
                 headers: {
@@ -1850,15 +1880,31 @@ function showLoading(show) {
 function validateEntryLimits() {
     const session = document.getElementById('session').value;
     const anchalName = document.getElementById('anchal_name').value;
-    const type = document.getElementById('type').value;
+    const typeSelect = document.getElementById('type');
+    const typeName = typeSelect.options[typeSelect.selectedIndex]?.dataset?.name || '';
     const designation = document.getElementById('designation').value;
     
-    if (!session || !anchalName || !type || !designation) {
+    if (!session || !anchalName || !typeName || !designation) {
         return true; // Let other validation handle required fields
     }
     
-    // This will be validated on the backend, but we can add frontend checks here
-    // For now, just validate that required fields are filled
+    // Special validation for PST posts - check if trying to add main posts that should be unique
+    if (typeName === 'pst') {
+        const normalizedDesignation = designation.toLowerCase().trim();
+        const mainPosts = ['president', 'secretary', 'treasurer', 'co treasurer'];
+        
+        if (mainPosts.includes(normalizedDesignation)) {
+            const designationSelect = document.getElementById('designation');
+            const selectedOption = designationSelect.options[designationSelect.selectedIndex];
+            
+            // Check if the option is disabled (meaning it's already used)
+            if (selectedOption && selectedOption.disabled) {
+                showToast(`केवल एक ${designation} प्रति सत्र की अनुमति है। कृपया कोई दूसरा पद चुनें।`, 'error');
+                return false;
+            }
+        }
+    }
+    
     return true;
 }
 

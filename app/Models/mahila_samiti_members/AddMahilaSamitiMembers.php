@@ -48,7 +48,7 @@ class AddMahilaSamitiMembers extends Model
             'session' => 'required|string|max:50',
             'anchal_name' => 'required|string|max:100',
             'anchal_code' => 'required|string|max:50',
-            'type' => 'required|in:pst,vp-sec,sanyojika,ksm_members',
+            'type' => 'required|string|max:100',
             'designation' => 'required|string|max:100',
             'mid' => 'required|string|max:6',
             'name' => 'required|string|max:100',
