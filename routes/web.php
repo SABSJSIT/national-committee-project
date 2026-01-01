@@ -92,6 +92,11 @@ Route::middleware(['web', 'checkSession'])->group(function () {
         Route::get('/designation-type-management', function () {
             return view('DesignationType.DesignationType');
         })->name('designation-type.management');
+
+        // Designation Management - Only Super Admin
+        Route::get('/designation-management', function () {
+            return view('Designation.Designation');
+        })->name('designation.management');
     });
 
     /* ----------------------------------------

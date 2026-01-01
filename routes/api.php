@@ -5,9 +5,14 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\mahila_samiti_members\AddMahilaSamitiMembersController;
 use App\Http\Controllers\Session\SessionController;
 use App\Http\Controllers\DesignationType\DesignationTypeController;
+use App\Http\Controllers\Designation\DesignationController;
 
 // Designation Type Routes
 Route::apiResource('designation-types', DesignationTypeController::class);
+
+// Designation Routes
+Route::get('designations/get-designation-types', [DesignationController::class, 'getDesignationTypes']);
+Route::apiResource('designations', DesignationController::class);
 
 // Mahila Samiti Members Routes
 // Check duplicate by session + MID (must be BEFORE apiResource to avoid being matched as {id})
