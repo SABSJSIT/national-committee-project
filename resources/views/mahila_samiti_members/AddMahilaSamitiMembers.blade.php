@@ -191,25 +191,19 @@
                         
                         <!-- Filter Dropdowns -->
                         <div class="row mt-2">
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <label for="anchalFilter" class="form-label small">Filter by Anchal:</label>
                                 <select id="anchalFilter" class="form-select form-select-sm">
                                     <option value="">All Anchals</option>
                                 </select>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <label for="stateFilter" class="form-label small">Filter by State:</label>
                                 <select id="stateFilter" class="form-select form-select-sm">
                                     <option value="">All States</option>
                                 </select>
                             </div>
-                            <div class="col-md-3">
-                                <label for="typeFilter" class="form-label small">Filter by Type:</label>
-                                <select id="typeFilter" class="form-select form-select-sm">
-                                    <option value="">All Types</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3 d-flex align-items-end">
+                            <div class="col-md-4 d-flex align-items-end">
                                 <button id="clearFiltersBtn" class="btn btn-outline-secondary btn-sm">
                                     <i class="fas fa-filter"></i> Clear Filters
                                 </button>
@@ -563,10 +557,6 @@ function populateFilterDropdownsFromDatabase(data) {
             }
         });
     }
-
-    // For Type dropdown, we'll still use session data as types are contextual to loaded data
-    const typeFilter = document.getElementById('typeFilter');
-    typeFilter.innerHTML = '<option value="">All Types</option>';
 }
 
 // Edit member (redirect to edit page or open in modal if needed later)
@@ -737,7 +727,6 @@ function initializeSearch() {
     const searchResults = document.getElementById('searchResults');
     const anchalFilter = document.getElementById('anchalFilter');
     const stateFilter = document.getElementById('stateFilter');
-    const typeFilter = document.getElementById('typeFilter');
 
     // Real-time search as user types
     searchInput.addEventListener('input', function() {
@@ -747,7 +736,6 @@ function initializeSearch() {
     // Filter change events
     anchalFilter.addEventListener('change', applyFiltersAndSearch);
     stateFilter.addEventListener('change', applyFiltersAndSearch);
-    typeFilter.addEventListener('change', applyFiltersAndSearch);
 
     // Clear search functionality
     clearSearchBtn.addEventListener('click', function() {
@@ -761,7 +749,6 @@ function initializeSearch() {
         searchInput.value = '';
         anchalFilter.value = '';
         stateFilter.value = '';
-        typeFilter.value = '';
         applyFiltersAndSearch();
         searchInput.focus();
     });
@@ -780,7 +767,6 @@ function applyFiltersAndSearch() {
     const searchTerm = document.getElementById('searchInput').value.trim().toLowerCase();
     const selectedAnchal = document.getElementById('anchalFilter').value;
     const selectedState = document.getElementById('stateFilter').value;
-    const selectedType = document.getElementById('typeFilter').value;
     const searchResults = document.getElementById('searchResults');
     
     if (!currentMembersData || currentMembersData.length === 0) {
@@ -803,12 +789,6 @@ function applyFiltersAndSearch() {
         );
     }
 
-    if (selectedType) {
-        filteredMembers = filteredMembers.filter(member => 
-            (member.type || '').toLowerCase() === selectedType.toLowerCase()
-        );
-    }
-
     // Apply text search
     if (searchTerm.length >= 2) {
         filteredMembers = filteredMembers.filter(member => {
@@ -826,7 +806,7 @@ function applyFiltersAndSearch() {
                 (member.father_name && member.father_name.toLowerCase().includes(searchTerm))
             );
         });
-    } else if (searchTerm.length === 0 && !selectedAnchal && !selectedState && !selectedType) {
+    } else if (searchTerm.length === 0 && !selectedAnchal && !selectedState) {
         // Show all data when no filters applied
         filteredMembers = currentMembersData;
         searchResults.textContent = '';
@@ -837,14 +817,13 @@ function applyFiltersAndSearch() {
 
     // Update search results count
     let resultsText = '';
-    if (searchTerm.length >= 2 || selectedAnchal || selectedState || selectedType) {
+    if (searchTerm.length >= 2 || selectedAnchal || selectedState) {
         resultsText = `Found ${filteredMembers.length} of ${currentMembersData.length} members`;
         
         // Add active filter info
         const activeFilters = [];
         if (selectedAnchal) activeFilters.push(`Anchal: ${selectedAnchal}`);
         if (selectedState) activeFilters.push(`State: ${selectedState}`);
-        if (selectedType) activeFilters.push(`Type: ${selectedType}`);
         if (searchTerm.length >= 2) activeFilters.push(`Search: "${searchTerm}"`);
         
         if (activeFilters.length > 0) {
@@ -894,10 +873,6 @@ function loadMembersBySession(session) {
     if (searchResults) {
         searchResults.textContent = '';
     }
-    
-    // Clear only search and type filter, keep anchal and state filters as they're database-driven
-    const typeFilter = document.getElementById('typeFilter');
-    if (typeFilter) typeFilter.value = '';
 
     fetch(`/api/mahila-samiti-members?session=${encodeURIComponent(session)}`, {
         method: 'GET',
@@ -913,9 +888,6 @@ function loadMembersBySession(session) {
             currentMembersData = res.data;
             currentDisplayedData = res.data; // Initially all data is displayed
             currentSession = session;
-            
-            // Populate only the type filter from session data (anchal and state are from database)
-            populateTypeFilterFromSessionData(res.data);
             
             // Display the data
             displayMembersGrouped(res.data, session);
