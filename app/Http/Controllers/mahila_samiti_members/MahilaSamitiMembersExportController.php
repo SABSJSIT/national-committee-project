@@ -131,9 +131,7 @@ class MahilaSamitiMembersExportController extends Controller
             .type-header { background-color: #e8e8e8; font-weight: bold; padding: 6px; border: 1px solid #333; font-size: 10px; }
             .designation-header { background-color: #f5f5f5; font-weight: bold; padding: 5px; border: 1px solid #666; font-size: 9px; }
             .anchal-header { background-color: #f5f5f5; font-style: italic; padding: 5px; border: 1px solid #666; font-size: 9px; }
-            .photo-cell { text-align: center; width: 50px; }
             .sno-cell { text-align: center; width: 40px; }
-            .session-cell { width: 60px; }
             .mid-cell { width: 60px; }
             .phone-cell { width: 85px; }
         </style>
@@ -145,16 +143,13 @@ class MahilaSamitiMembersExportController extends Controller
             <thead>
                 <tr>
                     <th class="sno-cell">S.No</th>
-                    <th class="session-cell">Session</th>
-                    <th class="photo-cell">Photo</th>
                     <th>Name</th>
                     <th>Type</th>
                     <th>Designation</th>
                     <th class="mid-cell">MID</th>
                     <th>Anchal</th>
                     <th class="phone-cell">Phone</th>
-                    <th>City</th>
-                    <th>State</th>
+                    <th>Address</th>
                 </tr>
             </thead>
             <tbody>';
@@ -164,7 +159,7 @@ class MahilaSamitiMembersExportController extends Controller
         foreach ($groupedMembers as $type => $groups) {
             // Type header row
             $typeDisplay = $this->getTypeDisplayName($type);
-            $html .= '<tr><td colspan="11" class="type-header">' . strtoupper($typeDisplay) . '</td></tr>';
+            $html .= '<tr><td colspan="8" class="type-header">' . strtoupper($typeDisplay) . '</td></tr>';
             
             // Check if this is Sanyojak/Sanyojika type
             $isSanyojak = (stripos($type, 'sanyojak') !== false || stripos($type, 'sanyojika') !== false);
@@ -178,26 +173,27 @@ class MahilaSamitiMembersExportController extends Controller
                     }, $members));
                     
                     // Show designation header first (bold)
-                    $html .= '<tr><td colspan="11" class="designation-header">' . htmlspecialchars($designation) . '</td></tr>';
+                    $html .= '<tr><td colspan="8" class="designation-header">' . htmlspecialchars($designation) . '</td></tr>';
                     
                     // Show anchal list on next line (italic)
                     $anchalList = implode('-', $anchals);
-                    $html .= '<tr><td colspan="11" class="anchal-header">Anchal: ' . htmlspecialchars($anchalList) . '</td></tr>';
+                    $html .= '<tr><td colspan="8" class="anchal-header">Anchal: ' . htmlspecialchars($anchalList) . '</td></tr>';
                     
                     // Member rows
                     foreach ($members as $member) {
+                        // Combine address, city, state
+                        $fullAddress = trim(($member->address ?? '') . ', ' . ($member->city ?? '') . ', ' . ($member->state ?? ''));
+                        $fullAddress = preg_replace('/^,\s*|,\s*,|,\s*$/', '', $fullAddress); // Clean up extra commas
+                        
                         $html .= '<tr>';
                         $html .= '<td class="sno-cell">' . $serialNo++ . '</td>';
-                        $html .= '<td class="session-cell">' . htmlspecialchars($member->session ?? '') . '</td>';
-                        $html .= '<td class="photo-cell"></td>'; // Photo placeholder
                         $html .= '<td>' . htmlspecialchars($member->name ?? '') . '</td>';
                         $html .= '<td>' . htmlspecialchars($this->getTypeDisplayName($member->type)) . '</td>';
                         $html .= '<td>' . htmlspecialchars($member->designation ?? '') . '</td>';
                         $html .= '<td class="mid-cell">' . htmlspecialchars($member->mid ?? '') . '</td>';
                         $html .= '<td>' . htmlspecialchars($member->anchal_name ?? '') . '</td>';
                         $html .= '<td class="phone-cell">' . htmlspecialchars($member->mobile_number ?? '') . '</td>';
-                        $html .= '<td>' . htmlspecialchars($member->city ?? '') . '</td>';
-                        $html .= '<td>' . htmlspecialchars($member->state ?? '') . '</td>';
+                        $html .= '<td>' . htmlspecialchars($fullAddress) . '</td>';
                         $html .= '</tr>';
                     }
                 }
@@ -206,23 +202,24 @@ class MahilaSamitiMembersExportController extends Controller
                 foreach ($groups as $anchal => $members) {
                     // Anchal header row (only for types that are anchal-wise, skip for PST)
                     if (strtolower($type) !== 'pst') {
-                        $html .= '<tr><td colspan="11" class="anchal-header">Anchal: ' . htmlspecialchars($anchal) . '</td></tr>';
+                        $html .= '<tr><td colspan="8" class="anchal-header">Anchal: ' . htmlspecialchars($anchal) . '</td></tr>';
                     }
                     
                     // Member rows
                     foreach ($members as $member) {
+                        // Combine address, city, state
+                        $fullAddress = trim(($member->address ?? '') . ', ' . ($member->city ?? '') . ', ' . ($member->state ?? ''));
+                        $fullAddress = preg_replace('/^,\s*|,\s*,|,\s*$/', '', $fullAddress); // Clean up extra commas
+                        
                         $html .= '<tr>';
                         $html .= '<td class="sno-cell">' . $serialNo++ . '</td>';
-                        $html .= '<td class="session-cell">' . htmlspecialchars($member->session ?? '') . '</td>';
-                        $html .= '<td class="photo-cell"></td>'; // Photo placeholder
                         $html .= '<td>' . htmlspecialchars($member->name ?? '') . '</td>';
                         $html .= '<td>' . htmlspecialchars($this->getTypeDisplayName($member->type)) . '</td>';
                         $html .= '<td>' . htmlspecialchars($member->designation ?? '') . '</td>';
                         $html .= '<td class="mid-cell">' . htmlspecialchars($member->mid ?? '') . '</td>';
                         $html .= '<td>' . htmlspecialchars($member->anchal_name ?? '') . '</td>';
                         $html .= '<td class="phone-cell">' . htmlspecialchars($member->mobile_number ?? '') . '</td>';
-                        $html .= '<td>' . htmlspecialchars($member->city ?? '') . '</td>';
-                        $html .= '<td>' . htmlspecialchars($member->state ?? '') . '</td>';
+                        $html .= '<td>' . htmlspecialchars($fullAddress) . '</td>';
                         $html .= '</tr>';
                     }
                 }
