@@ -18,10 +18,18 @@ class AddMahilaSamitiMembersController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
         try {
-            $members = AddMahilaSamitiMembers::orderBy('created_at', 'desc')->get();
+            $query = AddMahilaSamitiMembers::query();
+            
+            // Filter by session if provided
+            if ($request->has('session') && $request->session) {
+                $query->where('session', $request->session);
+            }
+            
+            $members = $query->orderBy('created_at', 'desc')->get();
+            
             return response()->json([
                 'success' => true,
                 'data' => $members,
@@ -624,6 +632,80 @@ class AddMahilaSamitiMembersController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching dropdown data: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get filter options (anchals and states) from database for dropdown filters
+     * Option 1: From existing members data (current approach)
+     * Option 2: From static tables (uncomment the static section below)
+     */
+    public function getFilterOptions()
+    {
+        try {
+            // Cache key for filter options
+            $cacheKey = 'mahila_samiti_filter_options';
+            
+            // Try to get data from cache first
+            $cachedData = cache($cacheKey);
+            if ($cachedData) {
+                return response()->json([
+                    'success' => true,
+                    'data' => $cachedData
+                ], 200);
+            }
+
+            // OPTION 1: Get from existing members data (shows only anchals/states with existing members)
+            /*
+            $anchals = AddMahilaSamitiMembers::select('anchal_name')
+                ->distinct()
+                ->whereNotNull('anchal_name')
+                ->where('anchal_name', '!=', '')
+                ->orderBy('anchal_name')
+                ->pluck('anchal_name')
+                ->toArray();
+
+            $states = AddMahilaSamitiMembers::select('state')
+                ->distinct()
+                ->whereNotNull('state')
+                ->where('state', '!=', '')
+                ->orderBy('state')
+                ->pluck('state')
+                ->toArray();
+            */
+
+            // OPTION 2: Get from static tables (shows ALL possible anchals/states)
+            $anchals = DB::table('anchal')
+                ->select('name')
+                ->orderBy('display_order')
+                ->orderBy('name')
+                ->pluck('name')
+                ->toArray();
+
+            $states = DB::table('states')
+                ->select('state_name as name')
+                ->orderBy('state_name')
+                ->pluck('name')
+                ->toArray();
+
+            $filterOptions = [
+                'anchals' => $anchals,
+                'states' => $states
+            ];
+
+            // Cache for 2 hours (data changes less frequently)
+            cache([$cacheKey => $filterOptions], now()->addHours(2));
+
+            return response()->json([
+                'success' => true,
+                'data' => $filterOptions
+            ], 200);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching filter options: ' . $e->getMessage()
             ], 500);
         }
     }

@@ -171,11 +171,11 @@
                         <small class="text-muted ms-3">Data is being loaded as per selected session only.</small>
                     </div>
                     
-                    <!-- Search Bar -->
+                    <!-- Search Bar and Filters -->
                     <div class="mb-3">
                         <div class="row">
                             <div class="col-md-6"> 
-                                <div class="input-group">
+                                <div class="input-group mb-2">
                                     <span class="input-group-text"><i class="fas fa-search"></i></span>
                                     <input type="text" class="form-control" id="searchInput" placeholder="Search by name, designation, MID, phone, city, or anchal..." autocomplete="off">
                                     <button class="btn btn-outline-secondary" type="button" id="clearSearchBtn">
@@ -186,6 +186,33 @@
                             </div>
                             <div class="col-md-6 text-end">
                                 <span id="searchResults" class="text-muted small"></span>
+                            </div>
+                        </div>
+                        
+                        <!-- Filter Dropdowns -->
+                        <div class="row mt-2">
+                            <div class="col-md-3">
+                                <label for="anchalFilter" class="form-label small">Filter by Anchal:</label>
+                                <select id="anchalFilter" class="form-select form-select-sm">
+                                    <option value="">All Anchals</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label for="stateFilter" class="form-label small">Filter by State:</label>
+                                <select id="stateFilter" class="form-select form-select-sm">
+                                    <option value="">All States</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label for="typeFilter" class="form-label small">Filter by Type:</label>
+                                <select id="typeFilter" class="form-select form-select-sm">
+                                    <option value="">All Types</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3 d-flex align-items-end">
+                                <button id="clearFiltersBtn" class="btn btn-outline-secondary btn-sm">
+                                    <i class="fas fa-filter"></i> Clear Filters
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -200,17 +227,14 @@
                             <thead>
                                 <tr>
                                     <th style="width: 5%;">S.No</th>
-                                    <th style="width: 8%;" class="hide-md">Session</th>
-                                    <th style="width: 8%;">Photo</th>
                                     <th style="width: 15%;">Name</th>
                                     <th style="width: 10%;" class="hide-sm">Type</th>
                                     <th style="width: 12%;">Designation</th>
                                     <th style="width: 10%;" class="hide-lg">MID</th>
                                     <th style="width: 12%;" class="hide-md">Anchal</th>
                                     <th style="width: 10%;">Phone</th>
-                                    <th style="width: 10%;" class="hide-sm">City</th>
-                                    <th style="width: 10%;" class="hide-lg">State</th>
-                                    <th style="width: 12%;">Actions</th>
+                                    <th style="width: 15%;">Address</th>
+                                    <th style="width: 11%;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="membersTableBody">
@@ -381,13 +405,31 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        // Generate PDF with selected fields and separate tables by category
+        // Check if we have filtered/displayed data
+        if (!currentDisplayedData || currentDisplayedData.length === 0) {
+            showToast('No data to export', 'info');
+            return;
+        }
+
+        // Generate PDF with currently displayed/filtered data
         const params = new URLSearchParams();
-        selectedFields.forEach(field => params.append('fields[]', field));
+        
+        // Send member IDs of currently displayed data
+        const memberIds = currentDisplayedData.map(m => m.id);
+        memberIds.forEach(id => params.append('member_ids[]', id));
+        
         params.append('session', session);
         if (useSeparateTables) {
-            params.append('separate_tables', '1'); // Flag to indicate separate tables by category
+            params.append('separate_tables', '1');
         }
+        
+        // Show info about what's being exported
+        const exportCount = memberIds.length;
+        const totalCount = currentMembersData.length;
+        if (exportCount < totalCount) {
+            showToast(`Exporting ${exportCount} filtered members out of ${totalCount} total`, 'info');
+        }
+        
         window.open('/mahila-samiti-members/export-fpdf?' + params.toString(), '_blank');
     });
 
@@ -458,6 +500,73 @@ function loadSessions() {
     .catch(err => {
         console.warn('Could not load dropdown data for sessions.', err);
     });
+    
+    // Load filter dropdown data from database
+    loadFilterDropdownsFromDatabase();
+}
+
+// Load filter dropdowns from database
+function loadFilterDropdownsFromDatabase() {
+    // Fetch unique anchals and states from database
+    fetch('/api/mahila-samiti-members-filter-options', {
+        method: 'GET',
+        headers: {
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success && data.data) {
+            populateFilterDropdownsFromDatabase(data.data);
+        } else {
+            console.warn('Could not load filter options from database:', data);
+        }
+    })
+    .catch(err => {
+        console.error('Error loading filter options:', err);
+    });
+}
+
+// Populate filter dropdowns with database data
+function populateFilterDropdownsFromDatabase(data) {
+    // Populate Anchal dropdown
+    const anchalFilter = document.getElementById('anchalFilter');
+    const currentAnchal = anchalFilter.value;
+    anchalFilter.innerHTML = '<option value="">All Anchals</option>';
+    
+    if (data.anchals && Array.isArray(data.anchals)) {
+        data.anchals.forEach(anchal => {
+            if (anchal) { // Only add non-empty values
+                const option = document.createElement('option');
+                option.value = anchal;
+                option.textContent = anchal;
+                if (anchal === currentAnchal) option.selected = true;
+                anchalFilter.appendChild(option);
+            }
+        });
+    }
+
+    // Populate State dropdown
+    const stateFilter = document.getElementById('stateFilter');
+    const currentState = stateFilter.value;
+    stateFilter.innerHTML = '<option value="">All States</option>';
+    
+    if (data.states && Array.isArray(data.states)) {
+        data.states.forEach(state => {
+            if (state) { // Only add non-empty values
+                const option = document.createElement('option');
+                option.value = state;
+                option.textContent = state;
+                if (state === currentState) option.selected = true;
+                stateFilter.appendChild(option);
+            }
+        });
+    }
+
+    // For Type dropdown, we'll still use session data as types are contextual to loaded data
+    const typeFilter = document.getElementById('typeFilter');
+    typeFilter.innerHTML = '<option value="">All Types</option>';
 }
 
 // Edit member (redirect to edit page or open in modal if needed later)
@@ -618,31 +727,42 @@ function deleteMember(id) {
 // Global variable to store current members data for search
 let currentMembersData = [];
 let currentSession = '';
+let currentDisplayedData = []; // Tracks currently visible/filtered data for export
 
 // Search functionality
 function initializeSearch() {
     const searchInput = document.getElementById('searchInput');
     const clearSearchBtn = document.getElementById('clearSearchBtn');
+    const clearFiltersBtn = document.getElementById('clearFiltersBtn');
     const searchResults = document.getElementById('searchResults');
+    const anchalFilter = document.getElementById('anchalFilter');
+    const stateFilter = document.getElementById('stateFilter');
+    const typeFilter = document.getElementById('typeFilter');
 
     // Real-time search as user types
     searchInput.addEventListener('input', function() {
-        const searchTerm = this.value.trim();
-        if (searchTerm.length === 0) {
-            // Show all data when search is empty
-            displayMembersGrouped(currentMembersData, currentSession);
-            searchResults.textContent = '';
-        } else if (searchTerm.length >= 2) {
-            // Search when at least 2 characters
-            performSearch(searchTerm);
-        }
+        applyFiltersAndSearch();
     });
+
+    // Filter change events
+    anchalFilter.addEventListener('change', applyFiltersAndSearch);
+    stateFilter.addEventListener('change', applyFiltersAndSearch);
+    typeFilter.addEventListener('change', applyFiltersAndSearch);
 
     // Clear search functionality
     clearSearchBtn.addEventListener('click', function() {
         searchInput.value = '';
-        displayMembersGrouped(currentMembersData, currentSession);
-        searchResults.textContent = '';
+        applyFiltersAndSearch();
+        searchInput.focus();
+    });
+
+    // Clear all filters functionality
+    clearFiltersBtn.addEventListener('click', function() {
+        searchInput.value = '';
+        anchalFilter.value = '';
+        stateFilter.value = '';
+        typeFilter.value = '';
+        applyFiltersAndSearch();
         searchInput.focus();
     });
 
@@ -650,49 +770,112 @@ function initializeSearch() {
     searchInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
             e.preventDefault();
-            const searchTerm = this.value.trim();
-            if (searchTerm.length >= 2) {
-                performSearch(searchTerm);
-            }
+            applyFiltersAndSearch();
         }
     });
 }
 
-// Perform search across member data
-function performSearch(searchTerm) {
+// Combined filter and search function
+function applyFiltersAndSearch() {
+    const searchTerm = document.getElementById('searchInput').value.trim().toLowerCase();
+    const selectedAnchal = document.getElementById('anchalFilter').value;
+    const selectedState = document.getElementById('stateFilter').value;
+    const selectedType = document.getElementById('typeFilter').value;
     const searchResults = document.getElementById('searchResults');
     
     if (!currentMembersData || currentMembersData.length === 0) {
-        searchResults.textContent = 'No data to search';
+        searchResults.textContent = 'No data to filter';
         return;
     }
 
-    const term = searchTerm.toLowerCase();
-    const filteredMembers = currentMembersData.filter(member => {
-        return (
-            (member.name && member.name.toLowerCase().includes(term)) ||
-            (member.name_hindi && member.name_hindi.toLowerCase().includes(term)) ||
-            (member.designation && member.designation.toLowerCase().includes(term)) ||
-            (member.mid && member.mid.toString().toLowerCase().includes(term)) ||
-            (member.mobile_number && member.mobile_number.toString().includes(term)) ||
-            (member.city && member.city.toLowerCase().includes(term)) ||
-            (member.state && member.state.toLowerCase().includes(term)) ||
-            (member.anchal_name && member.anchal_name.toLowerCase().includes(term)) ||
-            (member.type && member.type.toLowerCase().includes(term)) ||
-            (member.husband_name && member.husband_name.toLowerCase().includes(term)) ||
-            (member.father_name && member.father_name.toLowerCase().includes(term))
+    let filteredMembers = currentMembersData;
+
+    // Apply dropdown filters first
+    if (selectedAnchal) {
+        filteredMembers = filteredMembers.filter(member => 
+            (member.anchal_name || '').toLowerCase() === selectedAnchal.toLowerCase()
         );
-    });
+    }
+
+    if (selectedState) {
+        filteredMembers = filteredMembers.filter(member => 
+            (member.state || '').toLowerCase() === selectedState.toLowerCase()
+        );
+    }
+
+    if (selectedType) {
+        filteredMembers = filteredMembers.filter(member => 
+            (member.type || '').toLowerCase() === selectedType.toLowerCase()
+        );
+    }
+
+    // Apply text search
+    if (searchTerm.length >= 2) {
+        filteredMembers = filteredMembers.filter(member => {
+            return (
+                (member.name && member.name.toLowerCase().includes(searchTerm)) ||
+                (member.name_hindi && member.name_hindi.toLowerCase().includes(searchTerm)) ||
+                (member.designation && member.designation.toLowerCase().includes(searchTerm)) ||
+                (member.mid && member.mid.toString().toLowerCase().includes(searchTerm)) ||
+                (member.mobile_number && member.mobile_number.toString().includes(searchTerm)) ||
+                (member.city && member.city.toLowerCase().includes(searchTerm)) ||
+                (member.state && member.state.toLowerCase().includes(searchTerm)) ||
+                (member.anchal_name && member.anchal_name.toLowerCase().includes(searchTerm)) ||
+                (member.type && member.type.toLowerCase().includes(searchTerm)) ||
+                (member.husband_name && member.husband_name.toLowerCase().includes(searchTerm)) ||
+                (member.father_name && member.father_name.toLowerCase().includes(searchTerm))
+            );
+        });
+    } else if (searchTerm.length === 0 && !selectedAnchal && !selectedState && !selectedType) {
+        // Show all data when no filters applied
+        filteredMembers = currentMembersData;
+        searchResults.textContent = '';
+        currentDisplayedData = filteredMembers;
+        displayMembersGrouped(filteredMembers, currentSession);
+        return;
+    }
 
     // Update search results count
-    searchResults.textContent = `Found ${filteredMembers.length} of ${currentMembersData.length} members`;
+    let resultsText = '';
+    if (searchTerm.length >= 2 || selectedAnchal || selectedState || selectedType) {
+        resultsText = `Found ${filteredMembers.length} of ${currentMembersData.length} members`;
+        
+        // Add active filter info
+        const activeFilters = [];
+        if (selectedAnchal) activeFilters.push(`Anchal: ${selectedAnchal}`);
+        if (selectedState) activeFilters.push(`State: ${selectedState}`);
+        if (selectedType) activeFilters.push(`Type: ${selectedType}`);
+        if (searchTerm.length >= 2) activeFilters.push(`Search: "${searchTerm}"`);
+        
+        if (activeFilters.length > 0) {
+            resultsText += ` (Filters: ${activeFilters.join(', ')})`;
+        }
+    }
+    
+    searchResults.textContent = resultsText;
+
+    // Store filtered data for export
+    currentDisplayedData = filteredMembers;
 
     // Display filtered results
     if (filteredMembers.length === 0) {
         const tbody = document.getElementById('membersTableBody');
-        tbody.innerHTML = `<tr><td colspan="12" class="text-center">No members found matching "${searchTerm}"</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center">No members found matching the selected criteria</td></tr>`;
     } else {
         displayMembersGrouped(filteredMembers, currentSession, true);
+    }
+}
+
+// Populate filter dropdowns
+function populateFilterDropdowns(members) {
+    // This function is now only used as fallback
+    // Primary filter population is done via database API
+    if (!members || !Array.isArray(members)) return;
+
+    // Only populate type filter from session data if not already populated
+    const typeFilter = document.getElementById('typeFilter');
+    if (typeFilter.children.length <= 1) { // Only has "All Types" option
+        populateTypeFilterFromSessionData(members);
     }
 }
 
@@ -702,7 +885,7 @@ function loadMembersBySession(session) {
     const searchInput = document.getElementById('searchInput');
     const searchResults = document.getElementById('searchResults');
     
-    tbody.innerHTML = '<tr><td colspan="12" class="text-center">Loading...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="text-center">Loading...</td></tr>';
     
     // Clear search when loading new session
     if (searchInput) {
@@ -711,6 +894,10 @@ function loadMembersBySession(session) {
     if (searchResults) {
         searchResults.textContent = '';
     }
+    
+    // Clear only search and type filter, keep anchal and state filters as they're database-driven
+    const typeFilter = document.getElementById('typeFilter');
+    if (typeFilter) typeFilter.value = '';
 
     fetch(`/api/mahila-samiti-members?session=${encodeURIComponent(session)}`, {
         method: 'GET',
@@ -724,10 +911,17 @@ function loadMembersBySession(session) {
         if (res.success && Array.isArray(res.data)) {
             // Store data globally for search functionality
             currentMembersData = res.data;
+            currentDisplayedData = res.data; // Initially all data is displayed
             currentSession = session;
+            
+            // Populate only the type filter from session data (anchal and state are from database)
+            populateTypeFilterFromSessionData(res.data);
+            
+            // Display the data
             displayMembersGrouped(res.data, session);
         } else {
             currentMembersData = [];
+            currentDisplayedData = [];
             currentSession = '';
             tbody.innerHTML = '<tr><td colspan="12" class="text-center">No members found for this session</td></tr>';
         }
@@ -738,13 +932,33 @@ function loadMembersBySession(session) {
     });
 }
 
+// Populate only type filter from session data
+function populateTypeFilterFromSessionData(members) {
+    if (!members || !Array.isArray(members)) return;
+
+    // Get unique types from current session data
+    const types = [...new Set(members.map(m => m.type).filter(Boolean))].sort();
+
+    // Populate Type dropdown
+    const typeFilter = document.getElementById('typeFilter');
+    const currentType = typeFilter.value;
+    typeFilter.innerHTML = '<option value="">All Types</option>';
+    types.forEach(type => {
+        const option = document.createElement('option');
+        option.value = type;
+        option.textContent = type.toUpperCase();
+        if (type === currentType) option.selected = true;
+        typeFilter.appendChild(option);
+    });
+}
+
 // Renders members by requested order and grouping
 function displayMembersGrouped(members, session, isSearchResult = false) {
     const tbody = document.getElementById('membersTableBody');
     tbody.innerHTML = '';
 
     if (!members || members.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="12" class="text-center">No members found for the selected session</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center">No members found for the selected session</td></tr>';
         return;
     }
 
@@ -805,7 +1019,7 @@ function displayMembersGrouped(members, session, isSearchResult = false) {
     // 1) PST (order: president, secretary, treasurer, co-treasurer)
     const pst = byType('pst');
     if (pst.length) {
-        rows.push(`<tr class="table-active"><td colspan="12"><strong>PST</strong></td></tr>`);
+        rows.push(`<tr class="table-active"><td colspan="9"><strong>PST</strong></td></tr>`);
 
         // helper to normalize designation strings for comparison
         const normalizeDesig = (d) => {
@@ -840,12 +1054,12 @@ function displayMembersGrouped(members, session, isSearchResult = false) {
     // 2) VP-SEC (anchal wise) -> within anchal: vice president then secretary
     const vpsec = byType('vp') .concat(byType('vp-sec')).filter((v, i, a) => a.indexOf(v) === i);
     if (vpsec.length) {
-        rows.push(`<tr class="table-active"><td colspan="12"><strong>VP-SEC (Anchal wise)</strong></td></tr>`);
+        rows.push(`<tr class="table-active"><td colspan="9"><strong>VP-SEC (Anchal wise)</strong></td></tr>`);
         const grouped = groupByAnchal(vpsec);
         const anchalKeys = Object.keys(grouped);
         const orderedAnchals = sortAnchals(anchalKeys);
         orderedAnchals.forEach(anchal => {
-            rows.push(`<tr class="table-secondary"><td colspan="12"><em>Anchal: ${anchal}</em></td></tr>`);
+            rows.push(`<tr class="table-secondary"><td colspan="9"><em>Anchal: ${anchal}</em></td></tr>`);
             const list = grouped[anchal];
             // vice president first
             list.filter(m => (m.designation || '').toString().toLowerCase().includes('vice')).forEach(m => rows.push(renderRow(m, session)));
@@ -860,7 +1074,7 @@ function displayMembersGrouped(members, session, isSearchResult = false) {
         });
     }
 
-    // 3) Sanyojika
+    // 3) Sanyojika/Sanyojak (grouped by designation)
     // Combine possible type variants and deduplicate by id to avoid duplicate rendering
     const sanyojikaCandidates = byType('sanyojika').concat(byType('sanyoj'));
     const sanyojika = [];
@@ -873,19 +1087,45 @@ function displayMembersGrouped(members, session, isSearchResult = false) {
         }
     });
     if (sanyojika.length) {
-        rows.push(`<tr class="table-active"><td colspan="12"><strong>Sanyojika</strong></td></tr>`);
-        sanyojika.forEach(m => rows.push(renderRow(m, session)));
+        rows.push(`<tr class="table-active"><td colspan="9"><strong>Sanyojika</strong></td></tr>`);
+        
+        // Group by designation
+        const groupByDesignation = (arr) => arr.reduce((acc, cur) => {
+            const key = cur.designation || 'Unknown';
+            (acc[key] = acc[key] || []).push(cur);
+            return acc;
+        }, {});
+        
+        const groupedByDesig = groupByDesignation(sanyojika);
+        const designationKeys = Object.keys(groupedByDesig);
+        
+        designationKeys.forEach(designation => {
+            const members = groupedByDesig[designation];
+            
+            // Collect all unique anchals for this designation
+            const anchals = [...new Set(members.map(m => m.anchal_name || 'Unknown'))];
+            const anchalList = anchals.join('-');
+            
+            // Show designation header (bold)
+            rows.push(`<tr class="table-info"><td colspan="9"><strong>${designation}</strong></td></tr>`);
+            
+            // Show anchal list (italic)
+            rows.push(`<tr class="table-secondary"><td colspan="9"><em>Anchal: ${anchalList}</em></td></tr>`);
+            
+            // Show members
+            members.forEach(m => rows.push(renderRow(m, session)));
+        });
     }
 
     // 4) KSM members (anchal wise)
     const ksm = byType('ksm').concat(byType('ksm-member')).filter((v, i, a) => a.indexOf(v) === i);
     if (ksm.length) {
-        rows.push(`<tr class="table-active"><td colspan="12"><strong>KSM Members (Anchal wise)</strong></td></tr>`);
+        rows.push(`<tr class="table-active"><td colspan="9"><strong>KSM Members (Anchal wise)</strong></td></tr>`);
         const groupedK = groupByAnchal(ksm);
         const anchalKeysK = Object.keys(groupedK);
         const orderedAnchalsK = sortAnchals(anchalKeysK);
         orderedAnchalsK.forEach(anchal => {
-            rows.push(`<tr class="table-secondary"><td colspan="12"><em>Anchal: ${anchal}</em></td></tr>`);
+            rows.push(`<tr class="table-secondary"><td colspan="9"><em>Anchal: ${anchal}</em></td></tr>`);
             groupedK[anchal].forEach(m => rows.push(renderRow(m, session)));
         });
     }
@@ -909,27 +1149,31 @@ function getPhotoUrl(m) {
 
 function renderRow(m, session, indexFallback) {
     const idx = typeof indexFallback === 'number' ? indexFallback + 1 : '';
-    const photoUrl = getPhotoUrl(m);
-    const photoHtml = photoUrl ? ('<a href="' + photoUrl + '" target="_blank" rel="noopener"><img src="' + photoUrl + '" class="photo-preview rounded"></a>') : '<i class="fas fa-user text-muted"></i>';
     
     // Truncate long text for better responsive display
     const nameDisplay = (m.name || '').length > 15 ? (m.name || '').substring(0, 15) + '...' : (m.name || '');
     const anchalDisplay = (m.anchal_name || '').length > 12 ? (m.anchal_name || '').substring(0, 12) + '...' : (m.anchal_name || '');
     const designationDisplay = (m.designation || '').length > 12 ? (m.designation || '').substring(0, 12) + '...' : (m.designation || '');
     
+    // Combine address, city, state
+    let fullAddress = '';
+    const addressParts = [];
+    if (m.address) addressParts.push(m.address);
+    if (m.city) addressParts.push(m.city);
+    if (m.state) addressParts.push(m.state);
+    fullAddress = addressParts.join(', ');
+    const addressDisplay = fullAddress.length > 20 ? fullAddress.substring(0, 20) + '...' : fullAddress;
+    
     const html = `
         <tr>
             <td>${idx || ''}</td>
-            <td class="hide-md">${session || (m.session || '')}</td>
-            <td>${photoHtml}</td>
             <td class="text-truncate-custom" title="${m.name || ''}">${nameDisplay}</td>
             <td class="hide-sm">${((m.type || '').toString().toUpperCase())}</td>
             <td title="${m.designation || ''}">${designationDisplay}</td>
             <td class="hide-lg">${m.mid || ''}</td>
             <td class="hide-md text-truncate-custom" title="${m.anchal_name || ''}">${anchalDisplay}</td>
             <td>${m.mobile_number || ''}</td>
-            <td class="hide-sm">${m.city || ''}</td>
-            <td class="hide-lg">${m.state || ''}</td>
+            <td class="text-truncate-custom" title="${fullAddress}">${addressDisplay}</td>
             <td>
                 <div class="action-buttons">
                     <button class="btn btn-sm btn-info" onclick="viewMember(${m.id})" title="View">

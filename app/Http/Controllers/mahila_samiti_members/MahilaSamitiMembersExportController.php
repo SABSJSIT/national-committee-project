@@ -15,10 +15,17 @@ class MahilaSamitiMembersExportController extends Controller
             // Get session filter
             $session = $request->query('session');
             
+            // Get member IDs if provided (for filtered export)
+            $memberIds = $request->query('member_ids');
+            
             // Fetch members with filters
             $query = AddMahilaSamitiMembers::query();
             
-            if ($session) {
+            // If specific member IDs are provided, filter by those
+            if ($memberIds && is_array($memberIds) && count($memberIds) > 0) {
+                $query->whereIn('id', $memberIds);
+            } elseif ($session) {
+                // Otherwise filter by session
                 $query->where('session', $session);
             }
             
