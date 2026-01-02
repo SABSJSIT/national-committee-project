@@ -355,10 +355,10 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // PDF Export with field selection
+    // PDF Export with field selection and separate tables by category
     document.getElementById('generatePdfBtn').addEventListener('click', function() {
         const selectedFields = [];
-        document.querySelectorAll('#pdfFieldsForm input[type="checkbox"]:checked').forEach(checkbox => {
+        document.querySelectorAll('#pdfFieldsForm input[type="checkbox"][name="field"]:checked').forEach(checkbox => {
             selectedFields.push(checkbox.value);
         });
 
@@ -367,13 +367,27 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Check if separate tables option is selected
+        const separateTablesCheckbox = document.getElementById('pdfSeparateTables');
+        const useSeparateTables = separateTablesCheckbox ? separateTablesCheckbox.checked : true;
+
         // Close the modal
         const modal = bootstrap.Modal.getInstance(document.getElementById('pdfFieldsModal'));
         if (modal) modal.hide();
 
-        // Generate PDF with selected fields
+        const session = document.getElementById('sessionSelect').value;
+        if (!session) {
+            showToast('Please select a session first', 'info');
+            return;
+        }
+
+        // Generate PDF with selected fields and separate tables by category
         const params = new URLSearchParams();
         selectedFields.forEach(field => params.append('fields[]', field));
+        params.append('session', session);
+        if (useSeparateTables) {
+            params.append('separate_tables', '1'); // Flag to indicate separate tables by category
+        }
         window.open('/mahila-samiti-members/export-fpdf?' + params.toString(), '_blank');
     });
 
@@ -997,6 +1011,17 @@ function showToast(message, type = 'info') {
             <div class="modal-body">
                 <form id="pdfFieldsForm">
                     <div class="mb-3">
+                        <div class="alert alert-info">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="pdfSeparateTables" name="separate_tables" value="1" checked>
+                                <label class="form-check-label" for="pdfSeparateTables">
+                                    <strong>Generate separate tables by category (PST, VP-SEC Anchal wise, KSM Members Anchal wise, Sanyojak/Sanyojika)</strong>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <strong>Select Fields to Include:</strong>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="pdfFieldSession" name="field" value="session" checked>
                             <label class="form-check-label" for="pdfFieldSession">

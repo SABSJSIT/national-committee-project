@@ -768,7 +768,7 @@ function updateDesignations() {
                 checkExistingCombinations(session, anchalName, designationTypeName, availableDesignations);
             } else {
                 // If session not selected, show all designations
-                populateDesignationOptions(availableDesignations, [], designationTypeName);
+                populateDesignationOptions(availableDesignations, [], designationTypeName, anchalName);
                 showLoading(false);
             }
         } else {
@@ -788,10 +788,10 @@ function checkExistingCombinations(session, anchalName, typeName, availableDesig
     // Build API URL with type name (stored in type field in database)
     let apiUrl = `/api/mahila-samiti-members-existing-combinations?session=${encodeURIComponent(session)}&type=${encodeURIComponent(typeName)}`;
     
-    // Include anchal in the check if provided
-    if (anchalName) {
-        apiUrl += `&anchal_name=${encodeURIComponent(anchalName)}`;
-    }
+    // For PST, SANYOJAK, SANYOJIKA types, don't include anchal in check - these posts should be unique across all anchals (per session only)
+    // For VP SEC and other types, include anchal in the check if provided (per anchal per designation restriction)
+    // NOTE: Backend now returns ALL designations for the session+type so we can do local vs global filtering here.
+    // We just pass the session and type to get the full list.
     
     fetch(apiUrl, {
         method: 'GET',
@@ -804,15 +804,15 @@ function checkExistingCombinations(session, anchalName, typeName, availableDesig
     .then(data => {
         if (data.success) {
             const usedDesignations = data.combinations || [];
-            populateDesignationOptions(availableDesignations, usedDesignations, typeName);
+            populateDesignationOptions(availableDesignations, usedDesignations, typeName, anchalName);
         } else {
-            populateDesignationOptions(availableDesignations, [], typeName);
+            populateDesignationOptions(availableDesignations, [], typeName, anchalName);
             console.error('Error fetching existing combinations:', data.message);
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        populateDesignationOptions(availableDesignations, [], typeName);
+        populateDesignationOptions(availableDesignations, [], typeName, anchalName);
     })
     .finally(() => {
         showLoading(false);
@@ -820,7 +820,7 @@ function checkExistingCombinations(session, anchalName, typeName, availableDesig
 }
 
 // Populate designation options with disabled state for used ones
-function populateDesignationOptions(availableDesignations, usedDesignations, typeName) {
+function populateDesignationOptions(availableDesignations, usedDesignations, typeName, currentAnchalName) {
     const designationSelect = document.getElementById('designation');
     const designationInfo = document.getElementById('designationInfo');
     
@@ -832,7 +832,7 @@ function populateDesignationOptions(availableDesignations, usedDesignations, typ
         return;
     }
     
-    let currentCount = usedDesignations.length;
+    let currentCount = 0; // Helper to count how many inputs are unavailable
 
     // Edit-mode context: allow the current member's designation to remain selectable
     const editId = (document.getElementById('edit_member_id') || {}).value || '';
@@ -847,7 +847,7 @@ function populateDesignationOptions(availableDesignations, usedDesignations, typ
         if (!s) return '';
         return s.toString().toLowerCase().trim().replace(/\s+/g, ' ').replace(/[-–—]/g, ' ');
     };
-    const usedNorm = usedDesignations.map(d => normalize(d));
+    
     const currentDesigNorm = normalize(currentDesignationStored || '');
     
     // We'll always populate options but may disable them
@@ -855,24 +855,83 @@ function populateDesignationOptions(availableDesignations, usedDesignations, typ
     
     // Populate designation options from database
     let availableCount = 0;
+    
     availableDesignations.forEach(designation => {
-        const desNorm = normalize(designation.name);
-        const isUsed = usedNorm.includes(desNorm);
+        const desName = designation.name;
+        const desNorm = normalize(desName);
+        
+        // Logic to determine if this designation is "Global" (Unique per Session+Type) 
+        // or "Local" (Unique per Session+Type+Anchal)
+        // Check the TYPE NAME (not designation name) to determine if it's global
+        const typeNorm = normalize(typeName);
+        const isGlobalPost = typeNorm.includes('sanyojak') || typeNorm.includes('sanyojika') || typeNorm.includes('संयोजक') || typeNorm.includes('संयोजिका') || typeNorm === 'pst';
+        
+        // KSM members can have multiple entries with same designation (up to 12 total per anchal)
+        // So we don't mark individual designations as "used" for KSM type
+        const isKSMType = typeNorm.includes('ksm') || typeNorm.includes('केएसएम');
+        
+        let isUsed = false;
+        
+        if (isKSMType) {
+            // For KSM members, don't mark individual designations as used
+            // The limit is on total count (12 per anchal), not per designation
+            isUsed = false;
+        } else if (isGlobalPost) {
+            // Global check: Is it used ANYWHERE in this Session+Type?
+            // usedDesignations is array of {designation: "...", anchal_name: "..."}
+            isUsed = usedDesignations.some(u => normalize(u.designation) === desNorm);
+        } else {
+            // Local check: Is it used in THIS Anchal?
+            if (currentAnchalName) {
+                isUsed = usedDesignations.some(u => normalize(u.designation) === desNorm && u.anchal_name === currentAnchalName);
+            }
+        }
+
         // If in edit mode and original session/type match current, allow the member's own designation
         const exemptThis = isExemptContext && desNorm === currentDesigNorm && currentDesigNorm !== '';
+        
         const disabled = isUsed && !exemptThis;
         const disabledAttr = disabled ? 'disabled' : '';
         const usedText = (isUsed && !exemptThis) ? ' (Already Added)' : '';
         const styleAttr = (isUsed && !exemptThis) ? 'style="color: #6c757d; background-color: #f8f9fa;"' : '';
 
-        if (!disabled) availableCount++;
+        if (disabled) {
+            currentCount++;
+        } else {
+            availableCount++;
+        }
 
         designationSelect.innerHTML += `<option value="${designation.name}" ${disabledAttr} ${styleAttr}>${designation.name}${usedText}</option>`;
     });
     
     // Show info about available vs used designations
     const maxEntries = availableDesignations.length;
-    if (availableCount === 0) {
+    
+    // Special handling for KSM members - check if limit of 12 per anchal is reached
+    const typeNorm = normalize(typeName);
+    const isKSMType = typeNorm.includes('ksm') || typeNorm.includes('केएसएम');
+    
+    if (isKSMType && currentAnchalName) {
+        // Count how many KSM members already exist for this anchal
+        const ksmMembersCount = usedDesignations.filter(u => u.anchal_name === currentAnchalName).length;
+        const maxKSMMembers = 12;
+        const remainingSlots = maxKSMMembers - ksmMembersCount;
+        
+        if (ksmMembersCount >= maxKSMMembers) {
+            // Limit reached - disable form
+            if (isExemptContext && currentDesigNorm) {
+                designationInfo.innerHTML = `<span class="text-info">ℹ️ Current designation is retained for this member. Maximum limit of ${maxKSMMembers} KSM members per anchal has been reached.</span>`;
+            } else {
+                designationInfo.innerHTML = `<span class="designation-warning">❌ Maximum limit of ${maxKSMMembers} KSM members per anchal has been reached for ${currentAnchalName}. (प्रति अंचल अधिकतम ${maxKSMMembers} KSM सदस्यों की सीमा पूर्ण हो चुकी है।)</span>`;
+                designationSelect.disabled = true;
+            }
+        } else if (remainingSlots <= 3) {
+            // Warning when approaching limit
+            designationInfo.innerHTML = `<span class="text-warning">⚠️ ${ksmMembersCount} of ${maxKSMMembers} KSM members added for ${currentAnchalName}. Only ${remainingSlots} slot(s) remaining. (${currentAnchalName} के लिए ${maxKSMMembers} में से ${ksmMembersCount} KSM सदस्य जोड़े गए। केवल ${remainingSlots} स्लॉट शेष हैं।)</span>`;
+        } else {
+            designationInfo.innerHTML = `<span class="text-info">ℹ️ ${ksmMembersCount} of ${maxKSMMembers} KSM members added for ${currentAnchalName}. ${remainingSlots} slot(s) available.</span>`;
+        }
+    } else if (availableCount === 0) {
         // If editing and exempt context, allow the current designation even if others are full
         if (isExemptContext && currentDesigNorm) {
             designationInfo.innerHTML = `<span class="text-info">ℹ️ Current designation is retained for this member; other designations are filled.</span>`;
@@ -881,10 +940,8 @@ function populateDesignationOptions(availableDesignations, usedDesignations, typ
             // If not editing or nothing to exempt, disable the select to prevent new entries
             designationSelect.disabled = true;
         }
-    } else if (currentCount === 0) {
-        designationInfo.innerHTML = `<span class="text-info">ℹ️ ${availableCount} designation${availableCount > 1 ? 's' : ''} available for this type</span>`;
-    } else {
-        designationInfo.innerHTML = `<span class="text-warning">⚠️ ${currentCount} filled, ${availableCount} available for this type</span>`;
+    } else if (currentCount > 0) {
+         designationInfo.innerHTML = `<span class="text-warning">⚠️ ${currentCount} filled, ${availableCount} available for this type</span>`;
     }
 }
 
@@ -912,8 +969,22 @@ function setupEventListeners() {
             citySelect.disabled = true;
         }
         
-        // Update designations when anchal changes
-        updateDesignations();
+        // Update designations when anchal changes - but only for types that depend on anchal
+        const typeSelect = document.getElementById('type');
+        const typeName = typeSelect.options[typeSelect.selectedIndex]?.dataset?.name || '';
+        const typeNameNorm = typeName.toLowerCase().trim();
+        
+        // Only update designations for types that have per-anchal restrictions
+        // PST, SANYOJAK, SANYOJIKA (including Hindi variations) have global restrictions and don't need anchal-based updates
+        const isGlobalType = typeNameNorm.includes('pst') || 
+                            typeNameNorm.includes('sanyojak') || 
+                            typeNameNorm.includes('sanyojika') ||
+                            typeNameNorm.includes('संयोजक') || 
+                            typeNameNorm.includes('संयोजिका');
+        
+        if (!isGlobalType) {
+            updateDesignations();
+        }
     });
     
     // Mobile number input event - auto-fetch profile when valid number is entered
@@ -1888,20 +1959,21 @@ function validateEntryLimits() {
         return true; // Let other validation handle required fields
     }
     
-    // Special validation for PST posts - check if trying to add main posts that should be unique
-    if (typeName === 'pst') {
-        const normalizedDesignation = designation.toLowerCase().trim();
-        const mainPosts = ['president', 'secretary', 'treasurer', 'co treasurer'];
+    // Special validation for PST, SANYOJAK, SANYOJIKA posts - check if trying to add posts that should be unique per session
+    const typeNameLower = typeName.toLowerCase();
+    if (['pst', 'sanyojak', 'sanyojika'].includes(typeNameLower)) {
+        const designationSelect = document.getElementById('designation');
+        const selectedOption = designationSelect.options[designationSelect.selectedIndex];
         
-        if (mainPosts.includes(normalizedDesignation)) {
-            const designationSelect = document.getElementById('designation');
-            const selectedOption = designationSelect.options[designationSelect.selectedIndex];
+        // Check if the option is disabled (meaning it's already used)
+        if (selectedOption && selectedOption.disabled) {
+            let typeDisplayName = typeName;
+            if (typeNameLower === 'sanyojak') typeDisplayName = 'संयोजक';
+            else if (typeNameLower === 'sanyojika') typeDisplayName = 'संयोजिका';
+            else if (typeNameLower === 'pst') typeDisplayName = 'PST';
             
-            // Check if the option is disabled (meaning it's already used)
-            if (selectedOption && selectedOption.disabled) {
-                showToast(`केवल एक ${designation} प्रति सत्र की अनुमति है। कृपया कोई दूसरा पद चुनें।`, 'error');
-                return false;
-            }
+            showToast(`${typeDisplayName} में "${designation}" पद इस सत्र के लिए पहले से भरा है। कृपया कोई दूसरा पद चुनें।`, 'error');
+            return false;
         }
     }
     

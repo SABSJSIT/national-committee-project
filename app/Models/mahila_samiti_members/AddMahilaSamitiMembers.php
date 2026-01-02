@@ -112,4 +112,23 @@ class AddMahilaSamitiMembers extends Model
         
         return $query->exists();
     }
+
+    // Check if sanyojika already exists for the given type in current session
+    public static function sanyojikaExistsForType($session, $type, $id = null)
+    {
+        $query = self::where('session', $session)
+                    ->where('type', $type)
+                    ->where(function($q) {
+                        $q->where('designation', 'like', '%संयोजक%')
+                          ->orWhere('designation', 'like', '%संयोजिका%')
+                          ->orWhere('designation', 'like', '%Sanyojak%')
+                          ->orWhere('designation', 'like', '%Sanyojika%');
+                    });
+        
+        if ($id) {
+            $query->where('id', '!=', $id);
+        }
+        
+        return $query->exists();
+    }
 }

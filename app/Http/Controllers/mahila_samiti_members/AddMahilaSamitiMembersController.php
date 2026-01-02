@@ -223,14 +223,27 @@ class AddMahilaSamitiMembersController extends Controller
             // The real restriction is on type+designation combination (checked below)
 
             // Check for duplicate type-designation combination for the same session (excluding current record)
-            if (AddMahilaSamitiMembers::typeDesignationExists($request->input('session'), $request->input('type'), $request->input('designation'), $id)) {
+            // Skip this check for KSM members - they can have multiple entries with same designation (limited by count only)
+            $type = $request->input('type');
+            $isKSMType = (stripos($type, 'ksm') !== false || stripos($type, 'केएसएम') !== false);
+            
+            if (!$isKSMType && AddMahilaSamitiMembers::typeDesignationExists($request->input('session'), $type, $request->input('designation'), $id)) {
                 $sessionDisplay = $request->input('session');
-                $typeDisplay = ucfirst(str_replace('-', ' ', $request->input('type')));
+                $typeDisplay = ucfirst(str_replace('-', ' ', $type));
                 $designationDisplay = $request->input('designation');
                 
                 return response()->json([
                     'success' => false,
                     'message' => "You have already added a {$typeDisplay} {$designationDisplay} for session {$sessionDisplay}. Each session can have only one member per type-designation combination."
+                ], 422);
+            }
+
+            // Specific validation based on type and session/anchal combination (including संयोजक/संयोजिका check)
+            $sessionValidationResult = $this->validateSessionAnchalLimits($request, $id);
+            if (!$sessionValidationResult['valid']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $sessionValidationResult['message']
                 ], 422);
             }
 
@@ -371,6 +384,19 @@ class AddMahilaSamitiMembersController extends Controller
         $type = $request->input('type');
         $designation = $request->input('designation');
 
+        // Check if designation contains "संयोजक" or "संयोजिका" (Hindi or English) - special validation needed
+        $isSanyojak = (stripos($designation, 'संयोजक') !== false || stripos($designation, 'संयोजिका') !== false || stripos($designation, 'Sanyojak') !== false || stripos($designation, 'Sanyojika') !== false);
+        
+        if ($isSanyojak) {
+            // Check if any संयोजक/संयोजिका already exists for this type and session
+            if (AddMahilaSamitiMembers::sanyojikaExistsForType($session, $type, $id)) {
+                return [
+                    'valid' => false,
+                    'message' => "प्रत्येक प्रवर्ती ({$type}) में केवल एक संयोजक/संयोजिका हो सकता है। सत्र {$session} में इस प्रवर्ती में पहले से ही एक संयोजक/संयोजिका मौजूद है।"
+                ];
+            }
+        }
+
         // For PST, check across all anchals for the session
         $query = AddMahilaSamitiMembers::where('session', $session)
                     ->where('type', $type);
@@ -438,8 +464,14 @@ class AddMahilaSamitiMembersController extends Controller
                 break;
 
             case 'ksm_members':
-                // KSM Members: no hard maximum enforced here (allow any number per anchal)
-                break;
+            // KSM Members: Maximum 12 entries per session per anchal
+            if ($existingCount >= 12) {
+                return [
+                    'valid' => false,
+                    'message' => "प्रति अंचल अधिकतम 12 KSM सदस्यों की अनुमति है। {$anchalName} में सत्र {$session} के लिए पहले से ही {$existingCount} KSM सदस्य हैं। (Maximum 12 KSM members allowed per anchal per session. {$anchalName} already has {$existingCount} KSM members for session {$session}.)"
+                ];
+            }
+            break;
         }
 
         return ['valid' => true, 'message' => ''];
@@ -722,23 +754,21 @@ class AddMahilaSamitiMembersController extends Controller
 
             $query = AddMahilaSamitiMembers::where('session', $session);
             
-            // Filter by anchal if provided — except for sanyojika which should be unique across all anchals
-            if ($anchalName && $type !== 'sanyojika') {
-                $query->where('anchal_name', $anchalName);
-            }
-            
             // Filter by type if provided
             if ($type) {
                 $query->where('type', $type);
             }
 
-            // Get existing designations for the filtered criteria
-            $existingDesignations = $query->pluck('designation')->toArray();
+            // Get existing designations with their anchal
+            // We return ALL designations for this Session+Type combination so the frontend can determine:
+            // 1. "Global" uniqueness (e.g. Sanyojak - 1 per Type per Session)
+            // 2. "Local" uniqueness (e.g. President - 1 per Anchal per Session)
+            $existingDesignations = $query->get(['designation', 'anchal_name']);
 
             return response()->json([
                 'success' => true,
                 'combinations' => $existingDesignations,
-                'count' => count($existingDesignations)
+                'count' => $existingDesignations->count()
             ]);
 
         } catch (\Exception $e) {
