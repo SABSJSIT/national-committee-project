@@ -140,6 +140,39 @@
     .modal-dialog {
         z-index: 2050 !important;
     }
+    
+    /* Professional Modal Styling */
+    .info-item {
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(0,0,0,0.05);
+    }
+    .info-item:last-child {
+        border-bottom: none;
+    }
+    .info-item label {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-weight: 600;
+    }
+    .info-item div {
+        color: #2c3e50;
+        min-height: 20px;
+    }
+    .bg-gradient {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    }
+    .card {
+        border-radius: 12px !important;
+    }
+    .modal-content {
+        border-radius: 16px !important;
+    }
+    .badge {
+        font-size: 0.7rem !important;
+        padding: 4px 8px !important;
+        border-radius: 6px !important;
+    }
 </style>
 
 <div class="container-fluid mt-4">
@@ -341,19 +374,115 @@ document.addEventListener('DOMContentLoaded', function() {
                     'remarks'
                 ];
 
-                // Prepare data for Excel based on selected fields and sequence
-                const excelData = members.map(m => {
-                    const row = {};
-                    columnSequence.forEach(field => {
-                        if (selectedFields.includes(field)) {
-                            row[field] = m[field] || '';
+                // Group members using same logic as displayMembersGrouped
+                const groupedExcelData = [];
+                
+                // 1) PST Group
+                const pst = members.filter(m => (m.type || '').toString().toLowerCase().includes('pst'));
+                if (pst.length) {
+                    groupedExcelData.push({ name: 'PST', designation: '', type: '', [columnSequence[0]]: '' }); // Header row
+                    const normalizeDesig = (d) => {
+                        if (!d) return '';
+                        return d.toString().toLowerCase().trim()
+                            .replace(/\s+/g, ' ')
+                            .replace(/\-/g, ' ')
+                            .replace(/co ?treasurer|cotreasure?r|co ?treasure?r/gi, 'co treasurer')
+                            .replace(/vice[- ]?president/gi, 'vice president');
+                    };
+                    const order = ['president', 'secretary', 'treasurer', 'co treasurer'];
+                    const renderedDesigs = new Set();
+                    order.forEach(desigKey => {
+                        const matched = pst.filter(m => normalizeDesig(m.designation) === desigKey);
+                        matched.forEach(m => {
+                            const row = {};
+                            columnSequence.forEach(field => {
+                                if (selectedFields.includes(field)) {
+                                    row[field] = m[field] || '';
+                                }
+                            });
+                            groupedExcelData.push(row);
+                            renderedDesigs.add(desigKey);
+                        });
+                    });
+                    pst.forEach(m => {
+                        const nd = normalizeDesig(m.designation);
+                        const already = Array.from(renderedDesigs).some(r => nd === r);
+                        if (!already) {
+                            const row = {};
+                            columnSequence.forEach(field => {
+                                if (selectedFields.includes(field)) {
+                                    row[field] = m[field] || '';
+                                }
+                            });
+                            groupedExcelData.push(row);
                         }
                     });
-                    return row;
+                }
+
+                // 2) VP-SEC Group
+                const vpsec = members.filter(m => {
+                    const type = (m.type || '').toString().toLowerCase();
+                    return type.includes('vp') || type.includes('vp-sec');
+                });
+                if (vpsec.length) {
+                    groupedExcelData.push({ name: 'VP-SEC (Anchal wise)', designation: '', type: '', [columnSequence[0]]: '' }); // Header row
+                    vpsec.forEach(m => {
+                        const row = {};
+                        columnSequence.forEach(field => {
+                            if (selectedFields.includes(field)) {
+                                row[field] = m[field] || '';
+                            }
+                        });
+                        groupedExcelData.push(row);
+                    });
+                }
+
+                // 3) Group by Designation
+                const otherMembers = members.filter(m => {
+                    const type = (m.type || '').toString().toLowerCase().trim();
+                    return !type.includes('pst') && !type.includes('vp') && !type.includes('ksm') && !type.includes('sec');
+                });
+                const designationGroups = {};
+                otherMembers.forEach(member => {
+                    const designation = (member.designation || 'Unknown').toString().trim();
+                    if (!designationGroups[designation]) {
+                        designationGroups[designation] = [];
+                    }
+                    designationGroups[designation].push(member);
+                });
+                Object.keys(designationGroups).forEach(designation => {
+                    const designationMembers = designationGroups[designation];
+                    if (designationMembers.length > 0) {
+                        groupedExcelData.push({ name: designation, designation: '', type: '', [columnSequence[0]]: '' }); // Header row
+                        designationMembers.forEach(m => {
+                            const row = {};
+                            columnSequence.forEach(field => {
+                                if (selectedFields.includes(field)) {
+                                    row[field] = m[field] || '';
+                                }
+                            });
+                            groupedExcelData.push(row);
+                        });
+                    }
                 });
 
-                // Create workbook and worksheet
-                const ws = XLSX.utils.json_to_sheet(excelData);
+                // 4) KSM Group
+                const ksm = members.filter(m => (m.type || '').toString().toLowerCase().includes('ksm'));
+                if (ksm.length) {
+                    groupedExcelData.push({ name: 'KSM Members (Anchal wise)', designation: '', type: '', [columnSequence[0]]: '' }); // Header row
+                    ksm.forEach(m => {
+                        const row = {};
+                        columnSequence.forEach(field => {
+                            if (selectedFields.includes(field)) {
+                                row[field] = m[field] || '';
+                            }
+                        });
+                        groupedExcelData.push(row);
+                    });
+                }
+
+                // Create workbook and worksheet with grouped data
+                const ws = XLSX.utils.json_to_sheet(groupedExcelData);
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, 'Members');
 
@@ -581,13 +710,14 @@ function viewMember(id) {
     .then(res => {
         if (res.success && res.data) {
             const m = res.data;
-            // Photo: attempt to build storage url if photo field exists
+            
+            // Handle photo display
             const photoEl = document.getElementById('viewMemberPhoto');
-            const photoContainer = document.getElementById('viewPhotoContainer');
             const photoPlaceholder = document.getElementById('viewPhotoPlaceholder');
             const photoLink = document.getElementById('viewPhotoLink');
+            
             if (m.photo) {
-                // If photo is already a full URL, use it; otherwise assume stored under storage/mahila_samiti/
+                // Build photo URL
                 let photoUrl = '';
                 if (typeof m.photo === 'string' && (m.photo.startsWith('http://') || m.photo.startsWith('https://') || m.photo.startsWith('/'))) {
                     photoUrl = m.photo.startsWith('/') ? m.photo : m.photo;
@@ -595,45 +725,68 @@ function viewMember(id) {
                     photoUrl = `/storage/mahila_samiti/${m.photo}`;
                 }
 
-                // Set image and link
+                // Show photo, hide placeholder
                 photoEl.src = photoUrl;
                 photoEl.classList.remove('d-none');
                 photoPlaceholder.classList.add('d-none');
                 photoLink.href = photoUrl;
 
-                // If image fails to load, hide and show placeholder
+                // Handle image load error
                 photoEl.onerror = function() {
                     photoEl.classList.add('d-none');
                     photoPlaceholder.classList.remove('d-none');
                     photoLink.href = '#';
                 };
             } else {
+                // Show placeholder, hide photo
                 photoEl.classList.add('d-none');
                 photoPlaceholder.classList.remove('d-none');
                 photoLink.href = '#';
             }
 
+            // Populate header information
             document.getElementById('viewMemberName').textContent = m.name || '';
-            // Summary: Name / Type / Designation / Anchal / Phone / City / State
-            const summary = `${m.name || ''} / ${m.type || ''} / ${m.designation || ''} / ${m.anchal_name || ''} / ${m.mobile_number || ''} / ${m.city || ''} / ${m.state || ''}`;
-            document.getElementById('viewMemberSummary').textContent = summary;
+            document.getElementById('viewMemberMID').textContent = m.mid || 'N/A';
+            document.getElementById('viewMemberPhone').textContent = m.mobile_number || 'N/A';
+            document.getElementById('viewMemberType').textContent = (m.type || '').toUpperCase() || 'N/A';
+            document.getElementById('viewMemberDesignation').textContent = m.designation || 'N/A';
 
-            // Build detail list
-            const details = [];
-            details.push(`<strong>MID:</strong> ${m.mid || ''}`);
-            details.push(`<strong>Husband / Father:</strong> ${m.husband_name || m.father_name || ''}`);
-            details.push(`<strong>Address:</strong> ${m.address || ''}`);
-            details.push(`<strong>WTP:</strong> ${m.wtp_number || ''}`);
-            details.push(`<strong>Ex Post:</strong> ${m.ex_post || ''}`);
-            details.push(`<strong>Remarks:</strong> ${m.remarks || ''}`);
+            // Populate personal information
+            document.getElementById('viewFullName').textContent = m.name || 'N/A';
+            
+            // Combine father/husband name
+            let fatherHusband = '';
+            if (m.husband_name) {
+                fatherHusband = `Husband: ${m.husband_name}`;
+            } else if (m.father_name) {
+                fatherHusband = `Father: ${m.father_name}`;
+            }
+            document.getElementById('viewFatherHusband').textContent = fatherHusband || 'N/A';
+            
+            document.getElementById('viewWTPNumber').textContent = m.wtp_number || 'N/A';
+            document.getElementById('viewExPost').textContent = m.ex_post || 'N/A';
 
-            document.getElementById('viewMemberDetails').innerHTML = details.map(d => `<p class="mb-1">${d}</p>`).join('');
+            // Populate location information
+            document.getElementById('viewAnchal').textContent = m.anchal_name || 'N/A';
+            document.getElementById('viewCity').textContent = m.city || 'N/A';
+            document.getElementById('viewState').textContent = m.state || 'N/A';
+            
+            // Combine full address
+            const addressParts = [];
+            if (m.address) addressParts.push(m.address);
+            if (m.city) addressParts.push(m.city);
+            if (m.state) addressParts.push(m.state);
+            if (m.pincode) addressParts.push(`PIN: ${m.pincode}`);
+            document.getElementById('viewAddress').textContent = addressParts.join(', ') || 'N/A';
 
-            // show modal
+            // Populate additional information
+            document.getElementById('viewRemarks').textContent = m.remarks || 'No remarks available';
+
+            // Show modal
             const viewModal = new bootstrap.Modal(document.getElementById('viewMemberModal'));
             viewModal.show();
 
-            // open edit from view
+            // Setup edit button
             document.getElementById('openEditFromViewBtn').onclick = function() {
                 viewModal.hide();
                 editMember(id);
@@ -946,48 +1099,13 @@ function displayMembersGrouped(members, session, isSearchResult = false) {
 
     // Normal grouped display for full data
     // Helpers
-    const byType = (typeKey) => members.filter(m => (m.type || '').toString().toLowerCase().includes(typeKey));
-    const groupByAnchal = (arr) => arr.reduce((acc, cur) => {
-        const key = cur.anchal_name || 'Unknown';
-        (acc[key] = acc[key] || []).push(cur);
-        return acc;
-    }, {});
-
-    // Preferred anchal ordering as requested by user
-    const preferredAnchals = [
-        'Mewar',
-        'Bikaner Marwar',
-        'Jaipur Beawar',
-        'Madhya Pradesh',
-        'Chattisgarh Odisha',
-        'Karnataka Andhra Pradesh',
-        'Tamil Nadu',
-        'Mumbai-Gujarat-UAE',
-        'Maharashtra Vidarbha Khandesh',
-        'Bengal-Bihar-Nepal-Bhutan-Jharkhand-Aanshik Orissa',
-        'Purvottar',
-        'Delhi-Punjab-Hariyana-Uttari'
-    ];
-
-    const sortAnchals = (keys) => {
-        const preferred = [];
-        const others = [];
-        const normalizedPref = preferredAnchals.map(p => p.toString().toLowerCase());
-        keys.forEach(k => {
-            const kn = (k || '').toString().toLowerCase();
-            const idx = normalizedPref.indexOf(kn);
-            if (idx !== -1) preferred[idx] = k; // place in same index to preserve pref order
-            else others.push(k);
-        });
-        // collapse preferred array (it may have undefined holes)
-        const prefCollapsed = preferred.filter(Boolean);
-        // sort remaining alphabetically
-        others.sort((a, b) => a.localeCompare(b));
-        return prefCollapsed.concat(others);
-    };
-
+    const filterByType = (typeKey) => members.filter(m => (m.type || '').toString().toLowerCase().includes(typeKey));
+    
     let rows = [];
 
+    // Helpers
+    const byType = (typeKey) => members.filter(m => (m.type || '').toString().toLowerCase().includes(typeKey));
+    
     // 1) PST (order: president, secretary, treasurer, co-treasurer)
     const pst = byType('pst');
     if (pst.length) {
@@ -1024,11 +1142,37 @@ function displayMembersGrouped(members, session, isSearchResult = false) {
     }
 
     // 2) VP-SEC (anchal wise) -> within anchal: vice president then secretary
-    const vpsec = byType('vp') .concat(byType('vp-sec')).filter((v, i, a) => a.indexOf(v) === i);
+    const vpsec = byType('vp').concat(byType('vp-sec')).filter((v, i, a) => a.indexOf(v) === i);
     if (vpsec.length) {
         rows.push(`<tr class="table-active"><td colspan="9"><strong>VP-SEC (Anchal wise)</strong></td></tr>`);
+        const groupByAnchal = (arr) => arr.reduce((acc, cur) => {
+            const key = cur.anchal_name || 'Unknown';
+            (acc[key] = acc[key] || []).push(cur);
+            return acc;
+        }, {});
         const grouped = groupByAnchal(vpsec);
         const anchalKeys = Object.keys(grouped);
+        const sortAnchals = (keys) => {
+            const preferredAnchals = [
+                'Mewar', 'Bikaner Marwar', 'Jaipur Beawar', 'Madhya Pradesh',
+                'Chattisgarh Odisha', 'Karnataka Andhra Pradesh', 'Tamil Nadu',
+                'Mumbai-Gujarat-UAE', 'Maharashtra Vidarbha Khandesh',
+                'Bengal-Bihar-Nepal-Bhutan-Jharkhand-Aanshik Orissa',
+                'Purvottar', 'Delhi-Punjab-Hariyana-Uttari'
+            ];
+            const preferred = [];
+            const others = [];
+            const normalizedPref = preferredAnchals.map(p => p.toString().toLowerCase());
+            keys.forEach(k => {
+                const kn = (k || '').toString().toLowerCase();
+                const idx = normalizedPref.indexOf(kn);
+                if (idx !== -1) preferred[idx] = k;
+                else others.push(k);
+            });
+            const prefCollapsed = preferred.filter(Boolean);
+            others.sort((a, b) => a.localeCompare(b));
+            return prefCollapsed.concat(others);
+        };
         const orderedAnchals = sortAnchals(anchalKeys);
         orderedAnchals.forEach(anchal => {
             rows.push(`<tr class="table-secondary"><td colspan="9"><em>Anchal: ${anchal}</em></td></tr>`);
@@ -1046,55 +1190,64 @@ function displayMembersGrouped(members, session, isSearchResult = false) {
         });
     }
 
-    // 3) Sanyojika/Sanyojak (grouped by designation)
-    // Combine possible type variants and deduplicate by id to avoid duplicate rendering
-    const sanyojikaCandidates = byType('sanyojika').concat(byType('sanyoj'));
-    const sanyojika = [];
-    const seenSanyojIds = new Set();
-    sanyojikaCandidates.forEach(m => {
-        if (!m || !m.id) return;
-        if (!seenSanyojIds.has(m.id)) {
-            seenSanyojIds.add(m.id);
-            sanyojika.push(m);
+    // 3) Group by actual Designation field values
+    // Get all non-PST, non-VP-SEC, non-KSM members for designation grouping
+    const otherMembers = members.filter(m => {
+        const type = (m.type || '').toString().toLowerCase().trim();
+        return !type.includes('pst') && !type.includes('vp') && !type.includes('ksm') && !type.includes('sec');
+    });
+
+    // Group by actual designation
+    const designationGroups = {};
+    otherMembers.forEach(member => {
+        const designation = (member.designation || 'Unknown').toString().trim();
+        if (!designationGroups[designation]) {
+            designationGroups[designation] = [];
+        }
+        designationGroups[designation].push(member);
+    });
+
+    // Display each designation group
+    Object.keys(designationGroups).forEach(designation => {
+        const designationMembers = designationGroups[designation];
+        if (designationMembers.length > 0) {
+            rows.push(`<tr class="table-active"><td colspan="9"><strong>${designation}</strong></td></tr>`);
+            designationMembers.forEach(m => rows.push(renderRow(m, session)));
         }
     });
-    if (sanyojika.length) {
-        rows.push(`<tr class="table-active"><td colspan="9"><strong>Sanyojika</strong></td></tr>`);
-        
-        // Group by designation
-        const groupByDesignation = (arr) => arr.reduce((acc, cur) => {
-            const key = cur.designation || 'Unknown';
-            (acc[key] = acc[key] || []).push(cur);
-            return acc;
-        }, {});
-        
-        const groupedByDesig = groupByDesignation(sanyojika);
-        const designationKeys = Object.keys(groupedByDesig);
-        
-        designationKeys.forEach(designation => {
-            const members = groupedByDesig[designation];
-            
-            // Collect all unique anchals for this designation
-            const anchals = [...new Set(members.map(m => m.anchal_name || 'Unknown'))];
-            const anchalList = anchals.join('-');
-            
-            // Show designation header (bold)
-            rows.push(`<tr class="table-info"><td colspan="9"><strong>${designation}</strong></td></tr>`);
-            
-            // Show anchal list (italic)
-            rows.push(`<tr class="table-secondary"><td colspan="9"><em>Anchal: ${anchalList}</em></td></tr>`);
-            
-            // Show members
-            members.forEach(m => rows.push(renderRow(m, session)));
-        });
-    }
 
     // 4) KSM members (anchal wise)
     const ksm = byType('ksm').concat(byType('ksm-member')).filter((v, i, a) => a.indexOf(v) === i);
     if (ksm.length) {
         rows.push(`<tr class="table-active"><td colspan="9"><strong>KSM Members (Anchal wise)</strong></td></tr>`);
+        const groupByAnchal = (arr) => arr.reduce((acc, cur) => {
+            const key = cur.anchal_name || 'Unknown';
+            (acc[key] = acc[key] || []).push(cur);
+            return acc;
+        }, {});
         const groupedK = groupByAnchal(ksm);
         const anchalKeysK = Object.keys(groupedK);
+        const sortAnchals = (keys) => {
+            const preferredAnchals = [
+                'Mewar', 'Bikaner Marwar', 'Jaipur Beawar', 'Madhya Pradesh',
+                'Chattisgarh Odisha', 'Karnataka Andhra Pradesh', 'Tamil Nadu',
+                'Mumbai-Gujarat-UAE', 'Maharashtra Vidarbha Khandesh',
+                'Bengal-Bihar-Nepal-Bhutan-Jharkhand-Aanshik Orissa',
+                'Purvottar', 'Delhi-Punjab-Hariyana-Uttari'
+            ];
+            const preferred = [];
+            const others = [];
+            const normalizedPref = preferredAnchals.map(p => p.toString().toLowerCase());
+            keys.forEach(k => {
+                const kn = (k || '').toString().toLowerCase();
+                const idx = normalizedPref.indexOf(kn);
+                if (idx !== -1) preferred[idx] = k;
+                else others.push(k);
+            });
+            const prefCollapsed = preferred.filter(Boolean);
+            others.sort((a, b) => a.localeCompare(b));
+            return prefCollapsed.concat(others);
+        };
         const orderedAnchalsK = sortAnchals(anchalKeysK);
         orderedAnchalsK.forEach(anchal => {
             rows.push(`<tr class="table-secondary"><td colspan="9"><em>Anchal: ${anchal}</em></td></tr>`);
@@ -1102,7 +1255,7 @@ function displayMembersGrouped(members, session, isSearchResult = false) {
         });
     }
 
-    // If no rows built (no recognized groups), render flat table
+    // If no rows built, render flat table
     if (rows.length === 0) {
         members.forEach((m, i) => rows.push(renderRow(m, session, i)));
     }
@@ -1181,36 +1334,181 @@ function showToast(message, type = 'info') {
 
 <!-- View Member Modal -->
 <div class="modal fade" id="viewMemberModal" tabindex="-1" aria-labelledby="viewMemberModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="viewMemberModalLabel">Member Details</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-primary text-white border-0">
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-user-circle me-3 fa-lg"></i>
+                    <h5 class="modal-title mb-0" id="viewMemberModalLabel">Member Profile</h5>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body">
-                <div class="row">
-                    <div class="col-md-4 text-center">
-                        <div id="viewPhotoContainer" class="mb-3">
-                            <a id="viewPhotoLink" href="#" target="_blank" rel="noopener">
-                                <img id="viewMemberPhoto" src="" alt="Photo" class="img-fluid rounded shadow-sm d-none" style="max-height:320px; object-fit:cover;">
-                            </a>
-                            <div id="viewPhotoPlaceholder" class="border rounded p-4 d-none" style="background:#f8f9fa;">
-                                <i class="fas fa-user fa-3x text-muted"></i>
-                                <div class="mt-2 text-muted">No photo</div>
+            <div class="modal-body p-0">
+                <!-- Header Section with Photo -->
+                <div class="bg-light border-bottom">
+                    <div class="container-fluid p-4">
+                        <div class="row align-items-center">
+                            <div class="col-md-3 text-center">
+                                <div id="viewPhotoContainer" class="position-relative d-inline-block">
+                                    <a id="viewPhotoLink" href="#" target="_blank" rel="noopener">
+                                        <img id="viewMemberPhoto" src="" alt="Member Photo" 
+                                             class="rounded-circle shadow-sm d-none border border-3 border-white" 
+                                             style="width: 120px; height: 120px; object-fit: cover;">
+                                    </a>
+                                    <div id="viewPhotoPlaceholder" class="rounded-circle bg-gradient shadow-sm d-none d-flex align-items-center justify-content-center border border-3 border-white" 
+                                         style="width: 120px; height: 120px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                                        <i class="fas fa-user fa-3x text-white"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-9">
+                                <div class="row">
+                                    <div class="col-12">
+                                        <h3 id="viewMemberName" class="fw-bold text-primary mb-2"></h3>
+                                        <div class="row g-3">
+                                            <div class="col-md-6">
+                                                <div class="d-flex align-items-center text-muted">
+                                                    <i class="fas fa-id-badge me-2 text-primary"></i>
+                                                    <span class="small">MID: </span>
+                                                    <span id="viewMemberMID" class="fw-semibold ms-1"></span>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="d-flex align-items-center text-muted">
+                                                    <i class="fas fa-phone me-2 text-success"></i>
+                                                    <span class="small">Phone: </span>
+                                                    <span id="viewMemberPhone" class="fw-semibold ms-1"></span>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="d-flex align-items-center text-muted">
+                                                    <i class="fas fa-user-tag me-2 text-info"></i>
+                                                    <span class="small">Type: </span>
+                                                    <span id="viewMemberType" class="fw-semibold ms-1 badge bg-info-subtle text-info-emphasis"></span>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="d-flex align-items-center text-muted">
+                                                    <i class="fas fa-award me-2 text-warning"></i>
+                                                    <span class="small">Designation: </span>
+                                                    <span id="viewMemberDesignation" class="fw-semibold ms-1"></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-8">
-                        <h5 id="viewMemberName" class="mb-1"></h5>
-                        <p id="viewMemberSummary" class="text-muted mb-2"></p>
-                        <hr>
-                        <div id="viewMemberDetails"></div>
+                </div>
+
+                <!-- Main Information Section -->
+                <div class="container-fluid p-4">
+                    <div class="row g-4">
+                        <!-- Personal Information -->
+                        <div class="col-md-6">
+                            <div class="card border-0 bg-light h-100">
+                                <div class="card-header bg-transparent border-0 pb-0">
+                                    <h6 class="text-primary fw-bold mb-0">
+                                        <i class="fas fa-user me-2"></i>Personal Information
+                                    </h6>
+                                </div>
+                                <div class="card-body pt-3">
+                                    <div class="row g-3">
+                                        <div class="col-12">
+                                            <div class="info-item">
+                                                <label class="text-muted small mb-1">Full Name</label>
+                                                <div id="viewFullName" class="fw-semibold"></div>
+                                            </div>
+                                        </div>
+                                        <div class="col-12">
+                                            <div class="info-item">
+                                                <label class="text-muted small mb-1">Father/Husband Name</label>
+                                                <div id="viewFatherHusband" class="fw-semibold"></div>
+                                            </div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="info-item">
+                                                <label class="text-muted small mb-1">WTP Number</label>
+                                                <div id="viewWTPNumber" class="fw-semibold"></div>
+                                            </div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="info-item">
+                                                <label class="text-muted small mb-1">Ex Post</label>
+                                                <div id="viewExPost" class="fw-semibold"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Location Information -->
+                        <div class="col-md-6">
+                            <div class="card border-0 bg-light h-100">
+                                <div class="card-header bg-transparent border-0 pb-0">
+                                    <h6 class="text-primary fw-bold mb-0">
+                                        <i class="fas fa-map-marker-alt me-2"></i>Location Information
+                                    </h6>
+                                </div>
+                                <div class="card-body pt-3">
+                                    <div class="row g-3">
+                                        <div class="col-12">
+                                            <div class="info-item">
+                                                <label class="text-muted small mb-1">Anchal</label>
+                                                <div id="viewAnchal" class="fw-semibold"></div>
+                                            </div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="info-item">
+                                                <label class="text-muted small mb-1">City</label>
+                                                <div id="viewCity" class="fw-semibold"></div>
+                                            </div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="info-item">
+                                                <label class="text-muted small mb-1">State</label>
+                                                <div id="viewState" class="fw-semibold"></div>
+                                            </div>
+                                        </div>
+                                        <div class="col-12">
+                                            <div class="info-item">
+                                                <label class="text-muted small mb-1">Full Address</label>
+                                                <div id="viewAddress" class="fw-semibold"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Additional Information -->
+                        <div class="col-12">
+                            <div class="card border-0 bg-light">
+                                <div class="card-header bg-transparent border-0 pb-0">
+                                    <h6 class="text-primary fw-bold mb-0">
+                                        <i class="fas fa-sticky-note me-2"></i>Additional Information
+                                    </h6>
+                                </div>
+                                <div class="card-body pt-3">
+                                    <div class="info-item">
+                                        <label class="text-muted small mb-1">Remarks</label>
+                                        <div id="viewRemarks" class="fw-semibold"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" id="openEditFromViewBtn">Edit</button>
+            <div class="modal-footer bg-light border-0 d-flex justify-content-between">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-2"></i>Close
+                </button>
+                <button type="button" class="btn btn-primary" id="openEditFromViewBtn">
+                    <i class="fas fa-edit me-2"></i>Edit Member
+                </button>
             </div>
         </div>
     </div>
